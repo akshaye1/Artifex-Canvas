@@ -20,25 +20,13 @@ export interface AppliedEffects {
 export const initialEffects: AppliedEffects = {
   animSize: 50,
   animEdgeThickness: 35,
-  animEdgeIntensity: 50,
-  animEdgeDetails: 50,
+  animEdgeIntensity: 60, // Slightly more intense tear by default
+  animEdgeDetails: 60,   // More detail in tear by default
   animCutoutStyle: 50,
   animTextureStrength: 30,
-  animShadowOffsetX: 50, // Mid-point, will map to 0 offset initially
-  animShadowOffsetY: 50, // Mid-point, will map to 0 offset initially
-  animShadowBlur: 20,
-  animShadowStrength: 50,
-  animMovement: 50,
+  animShadowOffsetX: 55, // Default to a slight positive X offset
+  animShadowOffsetY: 60, // Default to a more noticeable positive Y offset
+  animShadowBlur: 60,    // Default to a softer blur
+  animShadowStrength: 55, // Default to a moderate shadow strength
+  animMovement: 0,       // No movement by default to better see static effects
 };
-
-// paperTextureOptions and edgeStyleOptions are no longer needed.
-// export const paperTextureOptions = [
-//   { value: 'none', label: 'None' },
-//   { value: 'canvas', label: 'Canvas' },
-//   { value: 'watercolor', label: 'Watercolor' },
-// ];
-
-// export const edgeStyleOptions = [
-//   { value: 'none', label: 'None' },
-//   { value: 'torn', label: 'Torn Edge' },
-// ];
