@@ -1,19 +1,16 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import type { AppliedEffects } from '@/types';
-import { paperTextureOptions, edgeStyleOptions } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Download, Lightbulb, SlidersHorizontal, Sparkles, Move3d, Layers } from 'lucide-react';
-import { suggestFilters, type SuggestFiltersInput } from '@/ai/flows/suggest-filters';
-import { useToast } from '@/hooks/use-toast';
+import { Download, Wand2, Settings } from 'lucide-react'; // Changed icon
+// import { suggestFilters, type SuggestFiltersInput } from '@/ai/flows/suggest-filters'; // AI suggestions removed for now
+// import { useToast } from '@/hooks/use-toast'; // Toast might be used if AI comes back
 
 interface EffectsPanelProps {
   currentImage: File | null;
@@ -23,198 +20,61 @@ interface EffectsPanelProps {
 }
 
 export function EffectsPanel({ currentImage, effects, onEffectsChange, onDownload }: EffectsPanelProps) {
-  const [isLoadingAi, setIsLoadingAi] = useState(false);
-  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
-  const { toast } = useToast();
+  // const [isLoadingAi, setIsLoadingAi] = useState(false); // AI suggestions removed
+  // const [aiSuggestions, setAiSuggestions] = useState<string[]>([]); // AI suggestions removed
+  // const { toast } = useToast(); // AI suggestions removed
 
   const handleEffectChange = <K extends keyof AppliedEffects>(key: K, value: AppliedEffects[K]) => {
     onEffectsChange({ ...effects, [key]: value });
   };
 
-  const handleAiSuggest = async () => {
-    if (!currentImage) {
-      toast({ title: "Upload an image first", description: "AI needs an image to suggest filters.", variant: "destructive" });
-      return;
-    }
-    setIsLoadingAi(true);
-    setAiSuggestions([]);
-    try {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const photoDataUri = reader.result as string;
-        const input: SuggestFiltersInput = { photoDataUri };
-        const result = await suggestFilters(input);
-        setAiSuggestions(result.suggestedFilters);
-        if (result.suggestedFilters.length === 0) {
-          toast({ title: "AI Suggestions", description: "No specific suggestions found, try general filters!" });
-        } else {
-          toast({ title: "AI Suggestions Loaded", description: "Check the suggestions below." });
-        }
-      };
-      reader.onerror = () => {
-        toast({ title: "Error reading image", description: "Could not process the image for AI suggestions.", variant: "destructive" });
-        setIsLoadingAi(false);
-      };
-      reader.readAsDataURL(currentImage);
-    } catch (error) {
-      console.error("AI suggestion error:", error);
-      toast({ title: "AI Suggestion Error", description: "Could not fetch suggestions.", variant: "destructive" });
-    } finally {
-      setTimeout(() => setIsLoadingAi(false), 500);
-    }
-  };
-  
-  const handleApplySuggestion = (suggestion: string) => {
-    let newEffects = { ...effects };
-    const lowerSuggestion = suggestion.toLowerCase();
-
-    if (lowerSuggestion.includes('canvas texture')) newEffects.paperTexture = 'canvas';
-    else if (lowerSuggestion.includes('watercolor texture')) newEffects.paperTexture = 'watercolor';
-    
-    if (lowerSuggestion.includes('torn edge')) newEffects.edgeStyle = 'torn';
-
-    if (lowerSuggestion.includes('sepia')) newEffects.sepia = 70;
-    if (lowerSuggestion.includes('grayscale') || lowerSuggestion.includes('black and white')) newEffects.grayscale = true;
-    if (lowerSuggestion.includes('vignette')) newEffects.vignette = true;
-    if (lowerSuggestion.includes('drop shadow')) newEffects.dropShadow = true;
-
-
-    if (lowerSuggestion.includes('bright')) newEffects.brightness = Math.min(effects.brightness + 20, 200);
-    if (lowerSuggestion.includes('dark')) newEffects.brightness = Math.max(effects.brightness - 20, 0);
-    if (lowerSuggestion.includes('high contrast')) newEffects.contrast = Math.min(effects.contrast + 30, 200);
-    if (lowerSuggestion.includes('low contrast')) newEffects.contrast = Math.max(effects.contrast - 30, 0);
-    
-    onEffectsChange(newEffects);
-    toast({ title: "Suggestion Applied", description: `Applied: ${suggestion}` });
-  };
-
+  const animationControls: Array<{ id: keyof AppliedEffects; label: string; min: number; max: number; step: number; defaultValue: number }> = [
+    { id: 'animSize', label: 'Size', min: 10, max: 100, step: 1, defaultValue: 50 },
+    { id: 'animEdgeThickness', label: 'Edge thickness', min: 0, max: 100, step: 1, defaultValue: 35 },
+    { id: 'animEdgeIntensity', label: 'Edge intensity', min: 0, max: 100, step: 1, defaultValue: 50 },
+    { id: 'animEdgeDetails', label: 'Edge details', min: 0, max: 100, step: 1, defaultValue: 50 },
+    { id: 'animCutoutStyle', label: 'Cutout style', min: 0, max: 100, step: 1, defaultValue: 50 },
+    { id: 'animTextureStrength', label: 'Texture strength', min: 0, max: 100, step: 1, defaultValue: 30 },
+    { id: 'animShadowOffsetX', label: 'Shadow offset X', min: 0, max: 100, step: 1, defaultValue: 50 },
+    { id: 'animShadowOffsetY', label: 'Shadow offset Y', min: 0, max: 100, step: 1, defaultValue: 50 },
+    { id: 'animShadowBlur', label: 'Shadow blur', min: 0, max: 100, step: 1, defaultValue: 20 },
+    { id: 'animShadowStrength', label: 'Shadow strength', min: 0, max: 100, step: 1, defaultValue: 50 },
+    { id: 'animMovement', label: 'Movement', min: 0, max: 100, step: 1, defaultValue: 50 },
+  ];
 
   return (
     <Card className="shadow-lg">
       <CardHeader>
         <CardTitle className="font-headline text-xl flex items-center gap-2">
-          <SlidersHorizontal className="h-6 w-6 text-primary" />
-          Artistic Effects
+          <Settings className="h-6 w-6 text-primary" /> {/* Changed icon */}
+          Animation Settings
         </CardTitle>
-        <CardDescription>Adjust filters and textures for your image.</CardDescription>
+        <CardDescription>Adjust animation properties for your image.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div>
-          <Label htmlFor="paperTexture" className="text-sm font-medium">Paper Texture</Label>
-          <Select
-            value={effects.paperTexture}
-            onValueChange={(value) => handleEffectChange('paperTexture', value as 'none' | 'canvas' | 'watercolor')}
-          >
-            <SelectTrigger id="paperTexture" className="mt-1">
-              <SelectValue placeholder="Select texture" />
-            </SelectTrigger>
-            <SelectContent>
-              {paperTextureOptions.map(opt => (
-                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div>
-          <Label htmlFor="edgeStyle" className="text-sm font-medium">Edge Style</Label>
-          <Select
-            value={effects.edgeStyle}
-            onValueChange={(value) => handleEffectChange('edgeStyle', value as 'none' | 'torn')}
-          >
-            <SelectTrigger id="edgeStyle" className="mt-1">
-              <SelectValue placeholder="Select edge style" />
-            </SelectTrigger>
-            <SelectContent>
-              {edgeStyleOptions.map(opt => (
-                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {animationControls.map(control => (
+          <div key={control.id}>
+            <div className="flex justify-between items-center mb-1">
+              <Label htmlFor={control.id} className="text-sm font-medium">
+                {control.label}
+              </Label>
+              <span className="text-sm text-muted-foreground w-8 text-right">{effects[control.id]}</span>
+            </div>
+            <Slider
+              id={control.id}
+              min={control.min}
+              max={control.max}
+              step={control.step}
+              value={[effects[control.id] as number]}
+              onValueChange={([value]) => handleEffectChange(control.id, value)}
+              className="mt-1"
+            />
+          </div>
+        ))}
         
         <Separator />
 
-        <div className="space-y-4">
-          <div>
-            <Label htmlFor="brightness" className="text-sm font-medium">Brightness ({effects.brightness}%)</Label>
-            <Slider
-              id="brightness"
-              min={0} max={200} step={1}
-              value={[effects.brightness]}
-              onValueChange={([value]) => handleEffectChange('brightness', value)}
-              className="mt-1"
-            />
-          </div>
-          <div>
-            <Label htmlFor="contrast" className="text-sm font-medium">Contrast ({effects.contrast}%)</Label>
-            <Slider
-              id="contrast"
-              min={0} max={200} step={1}
-              value={[effects.contrast]}
-              onValueChange={([value]) => handleEffectChange('contrast', value)}
-              className="mt-1"
-            />
-          </div>
-          <div>
-            <Label htmlFor="sepia" className="text-sm font-medium">Sepia ({effects.sepia}%)</Label>
-            <Slider
-              id="sepia"
-              min={0} max={100} step={1}
-              value={[effects.sepia]}
-              onValueChange={([value]) => handleEffectChange('sepia', value)}
-              className="mt-1"
-            />
-          </div>
-        </div>
-
-        <Separator />
-        
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="grayscale" className="text-sm font-medium flex items-center gap-2">
-              Grayscale
-            </Label>
-            <Switch
-              id="grayscale"
-              checked={effects.grayscale}
-              onCheckedChange={(checked) => handleEffectChange('grayscale', checked)}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <Label htmlFor="vignette" className="text-sm font-medium flex items-center gap-2">
-              Vignette
-            </Label>
-            <Switch
-              id="vignette"
-              checked={effects.vignette}
-              onCheckedChange={(checked) => handleEffectChange('vignette', checked)}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <Label htmlFor="dropShadow" className="text-sm font-medium flex items-center gap-2">
-             <Layers className="h-4 w-4 text-muted-foreground" /> Drop Shadow (on image)
-            </Label>
-            <Switch
-              id="dropShadow"
-              checked={effects.dropShadow}
-              onCheckedChange={(checked) => handleEffectChange('dropShadow', checked)}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <Label htmlFor="floatingMotion" className="text-sm font-medium flex items-center gap-2">
-              <Move3d className="h-4 w-4 text-muted-foreground" /> Floating Motion
-            </Label>
-            <Switch
-              id="floatingMotion"
-              checked={effects.floatingMotion}
-              onCheckedChange={(checked) => handleEffectChange('floatingMotion', checked)}
-            />
-          </div>
-        </div>
-
-        <Separator />
-
+        {/* AI Suggestions Removed For Now
         <div>
           <h3 className="font-headline text-lg mb-2 flex items-center gap-2">
             <Lightbulb className="h-5 w-5 text-accent" />
@@ -225,26 +85,12 @@ export function EffectsPanel({ currentImage, effects, onEffectsChange, onDownloa
             {isLoadingAi ? 'Thinking...' : 'Suggest Filters with AI'}
           </Button>
           {aiSuggestions.length > 0 && (
-            <div className="mt-4 space-y-2">
-              <p className="text-sm text-muted-foreground">Click a suggestion to apply (experimental):</p>
-              <div className="flex flex-wrap gap-2">
-                {aiSuggestions.map((suggestion, index) => (
-                  <Button
-                    key={index}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleApplySuggestion(suggestion)}
-                    className="text-xs"
-                  >
-                    {suggestion}
-                  </Button>
-                ))}
-              </div>
-            </div>
+            // ... AI suggestion display logic
           )}
         </div>
         
-        <Separator />
+        <Separator /> 
+        */}
 
         <Button onClick={onDownload} disabled={!currentImage} className="w-full bg-primary hover:bg-primary/90">
           <Download className="mr-2 h-4 w-4" />

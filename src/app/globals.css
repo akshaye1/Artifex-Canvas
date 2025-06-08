@@ -39,6 +39,10 @@ h1, h2, h3, h4, h5, h6 {
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
+
+    /* CSS Variables for float animation */
+    --float-duration: 7s;
+    --float-translateY: -6px;
   }
 
   .dark {
@@ -81,7 +85,8 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 @layer utilities {
-  @keyframes float {
+  /* Old animate-float, will be replaced by animate-float-dynamic logic */
+  /* @keyframes float {
     0%, 100% {
       transform: translateY(0px) rotate(-0.2deg);
       box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);
@@ -93,6 +98,21 @@ h1, h2, h3, h4, h5, h6 {
   }
   .animate-float {
     animation: float 7s ease-in-out infinite;
+  } */
+
+  .animate-float-dynamic {
+    animation: float-dynamic var(--float-duration) ease-in-out infinite;
+    /* box-shadow is part of the Card component's default shadow, 
+       but can be enhanced here if dynamic shadow animation is desired */
+  }
+
+  @keyframes float-dynamic {
+    0%, 100% {
+      transform: translateY(0px) rotate(-0.1deg);
+    }
+    50% {
+      transform: translateY(var(--float-translateY)) rotate(0.1deg);
+    }
   }
 
   .perspective {
@@ -105,11 +125,12 @@ h1, h2, h3, h4, h5, h6 {
     backface-visibility: hidden;
   }
   .rotate-y-0 { transform: rotateY(0deg); }
-  .group-hover\:rotate-y-90 .fold-right { transform: rotateY(-90deg); }
-  .group-hover\:rotate-y-90 .fold-left { transform: rotateY(0deg); } /* Stays */
+  /* .group-hover\:rotate-y-90 .fold-right { transform: rotateY(-90deg); } - Not used */
+  /* .group-hover\:rotate-y-90 .fold-left { transform: rotateY(0deg); } - Not used */
 
   .foldable-image-container {
     @apply relative w-64 h-40 cursor-pointer perspective;
+     /* Removed 'group' from @apply as it's a marker class */
   }
   .fold-panel {
     @apply absolute w-1/2 h-full top-0 preserve-3d backface-hidden transition-transform duration-700 ease-in-out;
@@ -134,9 +155,9 @@ h1, h2, h3, h4, h5, h6 {
      transform: rotateY(-90deg);
   }
 
-  /* A different fold style: single panel folding over */
   .fold-over-container {
     @apply relative w-64 h-40 cursor-pointer perspective;
+    /* Removed 'group' from @apply */
   }
   .fold-over-panel {
     @apply absolute w-full h-full top-0 left-0 preserve-3d backface-hidden transition-transform duration-700 ease-in-out flex items-center justify-center;
@@ -153,7 +174,7 @@ h1, h2, h3, h4, h5, h6 {
     @apply bg-card flex items-center justify-center text-card-foreground p-4;
   }
 
-  .fold-over-container.group:hover .fold-over-panel {
+  .fold-over-container.group:hover .fold-over-panel { /* The .group class is now on the HTML element */
     transform: rotateY(-150deg); /* Adjust angle for desired fold */
   }
 }

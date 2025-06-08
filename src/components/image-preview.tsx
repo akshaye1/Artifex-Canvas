@@ -12,10 +12,17 @@ interface ImagePreviewProps {
   effects: AppliedEffects;
 }
 
+// Helper function to map a value from one range to another
+function mapRange(value: number, inMin: number, inMax: number, outMin: number, outMax: number): number {
+  return ((value - inMin) * (outMax - outMin)) / (inMax - inMin) + outMin;
+}
+
+
 export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [baseImage, setBaseImage] = useState<HTMLImageElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (imageFile) {
@@ -23,9 +30,7 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const img = new Image();
-        img.onload = () => {
-          setBaseImage(img);
-        };
+        img.onload = () => setBaseImage(img);
         img.onerror = () => {
           setError("Could not load image. Please try a different file.");
           setBaseImage(null);
@@ -43,9 +48,7 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
       const canvas = canvasRef.current;
       if (canvas) {
         const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-        }
+        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
     }
   }, [imageFile]);
@@ -57,24 +60,24 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
     if (!ctx) return;
 
     if (!baseImage) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (!imageFile && !error) {
-            ctx.fillStyle = 'hsl(var(--muted-foreground))';
-            ctx.textAlign = 'center';
-            ctx.font = '16px var(--font-body)';
-            ctx.fillText('Upload an image to see the preview', canvas.width / 2, canvas.height / 2);
-        } else if (error) {
-            ctx.fillStyle = 'hsl(var(--destructive))'; // Ensure this matches theme for errors
-            ctx.textAlign = 'center';
-            ctx.font = '16px var(--font-body)';
-            ctx.fillText(error, canvas.width / 2, canvas.height / 2);
-        }
-        return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!imageFile && !error) {
+        ctx.fillStyle = 'hsl(var(--muted-foreground))';
+        ctx.textAlign = 'center';
+        ctx.font = '16px var(--font-body)';
+        ctx.fillText('Upload an image to see the preview', canvas.width / 2, canvas.height / 2);
+      } else if (error) {
+        ctx.fillStyle = 'hsl(var(--destructive))';
+        ctx.textAlign = 'center';
+        ctx.font = '16px var(--font-body)';
+        ctx.fillText(error, canvas.width / 2, canvas.height / 2);
+      }
+      return;
     }
     
     const container = canvas.parentElement;
-    const maxWidth = container?.clientWidth ? Math.max(container.clientWidth - 32, 300) : 600;
-    const maxHeight = 500; 
+    const baseMaxWidth = container?.clientWidth ? Math.max(container.clientWidth - 32, 300) : 600;
+    const baseMaxHeight = 500; 
 
     let { width: imgWidth, height: imgHeight } = baseImage;
     let ratio = imgWidth / imgHeight;
@@ -82,145 +85,142 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
     let newWidth = imgWidth;
     let newHeight = imgHeight;
 
-    if (newWidth > maxWidth) {
-      newWidth = maxWidth;
+    if (newWidth > baseMaxWidth) {
+      newWidth = baseMaxWidth;
       newHeight = newWidth / ratio;
     }
-    if (newHeight > maxHeight) {
-      newHeight = maxHeight;
+    if (newHeight > baseMaxHeight) {
+      newHeight = baseMaxHeight;
       newWidth = newHeight * ratio;
     }
-    if (newWidth > maxWidth) {
-      newWidth = maxWidth;
-      newHeight = newWidth / ratio;
-    }
-
-    canvas.width = newWidth;
-    canvas.height = newHeight;
-    ctx.clearRect(0, 0, newWidth, newHeight);
-
-    // Apply filters
-    let filterString = '';
-    filterString += `brightness(${effects.brightness}%) `;
-    filterString += `contrast(${effects.contrast}%) `;
-    filterString += `sepia(${effects.sepia}%) `;
-    if (effects.grayscale) {
-      filterString += `grayscale(100%) `;
-    }
-    ctx.filter = filterString.trim();
-
-    // Apply drop shadow if enabled (before drawing image)
-    if (effects.dropShadow) {
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
-        ctx.shadowBlur = 10;
-        ctx.shadowOffsetX = 4;
-        ctx.shadowOffsetY = 4;
+    if (newWidth > baseMaxWidth) { // Re-check due to potential adjustment
+        newWidth = baseMaxWidth;
+        newHeight = newWidth / ratio;
     }
     
-    ctx.drawImage(baseImage, 0, 0, newWidth, newHeight);
+    // Apply animSize for overall scale
+    const displayScale = mapRange(effects.animSize, 10, 100, 0.1, 1.0);
+    const canvasWidth = newWidth * displayScale;
+    const canvasHeight = newHeight * displayScale;
 
-    // Reset shadow and filter for subsequent drawing operations
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+    
+    // Old filter string is removed
+    // ctx.filter = filterString.trim();
+
+    // Apply drop shadow from new controls
+    const shadowOffsetX = mapRange(effects.animShadowOffsetX, 0, 100, -20, 20);
+    const shadowOffsetY = mapRange(effects.animShadowOffsetY, 0, 100, -20, 20);
+    const shadowBlur = mapRange(effects.animShadowBlur, 0, 100, 0, 40);
+    const shadowStrength = mapRange(effects.animShadowStrength, 0, 100, 0, 0.6);
+    
+    if (shadowStrength > 0) {
+        ctx.shadowColor = `rgba(0, 0, 0, ${shadowStrength})`;
+        ctx.shadowBlur = shadowBlur;
+        ctx.shadowOffsetX = shadowOffsetX;
+        ctx.shadowOffsetY = shadowOffsetY;
+    }
+    
+    // Save context before clipping for edge effects
+    ctx.save();
+
+    // Edge Style (detailed torn/cutout effect)
+    const edgeThickness = mapRange(effects.animEdgeThickness, 0, 100, 0, Math.min(canvasWidth, canvasHeight) * 0.1); // Max 10% of smallest dim
+
+    if (edgeThickness > 0) {
+      const edgeIntensity = mapRange(effects.animEdgeIntensity, 0, 100, 0, edgeThickness * 0.8); // Amplitude relative to thickness
+      const edgeDetails = Math.floor(mapRange(effects.animEdgeDetails, 0, 100, 5, 50)); // Number of points/segments
+      const cutoutStyleParam = effects.animCutoutStyle / 100; // 0 to 1, for varying randomness or style
+
+      const path = new Path2D();
+      
+      // Top edge
+      path.moveTo(-edgeIntensity * cutoutStyleParam, Math.random() * edgeIntensity - edgeIntensity / 2);
+      for (let i = 0; i <= edgeDetails; i++) {
+        const x = (canvasWidth / edgeDetails) * i;
+        const y = Math.random() * edgeIntensity - edgeIntensity / 2 + (Math.sin(i * cutoutStyleParam * Math.PI * 2) * edgeIntensity * (1-cutoutStyleParam))/2;
+        path.lineTo(x, Math.max(0, Math.min(edgeThickness, y + edgeThickness / 2)));
+      }
+      path.lineTo(canvasWidth + edgeIntensity * cutoutStyleParam, Math.random() * edgeIntensity - edgeIntensity / 2);
+      
+      // Right edge
+      for (let i = 0; i <= edgeDetails; i++) {
+        const y = (canvasHeight / edgeDetails) * i;
+        const x = canvasWidth - (Math.random() * edgeIntensity - edgeIntensity / 2 + (Math.cos(i * cutoutStyleParam * Math.PI*2) * edgeIntensity * (1-cutoutStyleParam))/2 );
+        path.lineTo(Math.max(canvasWidth - edgeThickness, Math.min(canvasWidth, x - edgeThickness / 2)), y);
+      }
+      path.lineTo(canvasWidth + edgeIntensity * cutoutStyleParam, canvasHeight + edgeIntensity * cutoutStyleParam);
+
+      // Bottom edge
+      for (let i = edgeDetails; i >= 0; i--) {
+        const x = (canvasWidth / edgeDetails) * i;
+        const y = canvasHeight - (Math.random() * edgeIntensity - edgeIntensity / 2 + (Math.sin(i * cutoutStyleParam * Math.PI*2 + Math.PI) * edgeIntensity * (1-cutoutStyleParam))/2);
+        path.lineTo(x, Math.max(canvasHeight - edgeThickness, Math.min(canvasHeight, y - edgeThickness / 2)));
+      }
+      path.lineTo(-edgeIntensity * cutoutStyleParam, canvasHeight + edgeIntensity * cutoutStyleParam);
+      
+      // Left edge
+      for (let i = edgeDetails; i >= 0; i--) {
+        const y = (canvasHeight / edgeDetails) * i;
+        const x = Math.random() * edgeIntensity - edgeIntensity / 2 + (Math.cos(i * cutoutStyleParam * Math.PI*2 + Math.PI) * edgeIntensity * (1-cutoutStyleParam))/2;
+        path.lineTo(Math.max(0, Math.min(edgeThickness, x + edgeThickness / 2)), y);
+      }
+      path.closePath();
+      ctx.clip(path);
+    }
+
+    ctx.drawImage(baseImage, 0, 0, canvasWidth, canvasHeight);
+    ctx.restore(); // Restore context after clipping (and drawing main image)
+
+    // Reset shadow for subsequent drawing operations like texture
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 0;
-    ctx.filter = 'none';
+    // ctx.filter = 'none'; // Old filter
 
     // Paper Texture
-    if (effects.paperTexture !== 'none') {
+    const textureStrength = mapRange(effects.animTextureStrength, 0, 100, 0, 0.25); // Max 25% opacity
+    if (textureStrength > 0) {
       ctx.save();
-      ctx.globalAlpha = effects.paperTexture === 'canvas' ? 0.15 : 0.2; // Slightly more prominent
-      if (effects.paperTexture === 'canvas') {
-        ctx.fillStyle = 'rgba(220, 210, 190, 0.2)'; 
-        ctx.fillRect(0, 0, newWidth, newHeight);
-      } else if (effects.paperTexture === 'watercolor') {
-        for (let i = 0; i < newWidth * newHeight * 0.05; i++) { // More specks
-          const x = Math.random() * newWidth;
-          const y = Math.random() * newHeight;
-          const alpha = Math.random() * 0.08;
-          ctx.fillStyle = `rgba(100, 80, 60, ${alpha})`;
-          ctx.fillRect(x, y, Math.random() * 2 + 1, Math.random() * 2 + 1);
-        }
+      ctx.globalAlpha = textureStrength;
+      // Simple cross-hatch like texture or noise
+      ctx.fillStyle = 'rgba(180, 170, 150, 0.5)'; // Muted brown/gray
+      for (let i = 0; i < canvasWidth * canvasHeight * 0.001 * (effects.animTextureStrength / 20) ; i++) { // Density based on strength
+        const x = Math.random() * canvasWidth;
+        const y = Math.random() * canvasHeight;
+        const size = Math.random() * 2 + 0.5;
+        ctx.fillRect(x, y, size, size);
       }
       ctx.globalAlpha = 1.0;
       ctx.restore();
     }
-
-    // Edge Style - Enhanced Torn Edge
-    if (effects.edgeStyle === 'torn') {
-      ctx.save();
-      const path = new Path2D();
-      let step = 15; // Smaller step for more detail
-      let roughness = Math.min(newWidth, newHeight) * 0.025; // Increased relative roughness
-
-      // Top edge
-      path.moveTo(0, (Math.random() - 0.5) * roughness);
-      for (let i = 0; i < newWidth; i += (step + (Math.random() -0.5) * step * 0.8)) {
-        path.lineTo(Math.min(i, newWidth), (Math.random() - 0.5) * roughness * (Math.random()*0.5 + 0.75) );
-      }
-      path.lineTo(newWidth, (Math.random() - 0.5) * roughness);
-
-      // Right edge
-      for (let i = 0; i < newHeight; i += (step + (Math.random() -0.5) * step * 0.8)) {
-        path.lineTo(newWidth + (Math.random() - 0.5) * roughness * (Math.random()*0.5 + 0.75), Math.min(i, newHeight));
-      }
-      path.lineTo(newWidth + (Math.random() - 0.5) * roughness, newHeight);
-      
-      // Bottom edge
-      for (let i = newWidth; i > 0; i -= (step + (Math.random() -0.5) * step * 0.8)) {
-        path.lineTo(Math.max(i,0), newHeight + (Math.random() - 0.5) * roughness * (Math.random()*0.5 + 0.75));
-      }
-      path.lineTo(0, newHeight + (Math.random() - 0.5) * roughness);
-
-      // Left edge
-      for (let i = newHeight; i > 0; i -= (step + (Math.random() -0.5) * step * 0.8)) {
-        path.lineTo((Math.random() - 0.5) * roughness * (Math.random()*0.5 + 0.75), Math.max(i,0));
-      }
-      path.closePath();
-      
-      ctx.clip(path); // Clip the image to this path first
-
-      // Re-draw the image into the clipped area if globalCompositeOperation not working as expected for all browsers/setups
-      // This ensures the original image content is what's clipped.
-      // ctx.drawImage(baseImage, 0, 0, newWidth, newHeight); // This might be redundant if original drawImage is still visible
-
-      // Then, draw the "torn edge" highlight/shadow on top of the clipped image
-      ctx.strokeStyle = "rgba(0,0,0,0.15)"; // Darker stroke
-      ctx.lineWidth = 2; // Slightly thicker
-      ctx.stroke(path);
-
-      // Add a very subtle lighter "inner tear" effect
-      ctx.strokeStyle = "rgba(255,255,255,0.1)";
-      ctx.lineWidth = 1;
-      // Create a slightly smaller path or offset path for this, or just stroke the same path slightly inside
-      // For simplicity, stroking the same path again, relying on line width and color
-      ctx.stroke(path);
-
-      ctx.restore();
-    }
     
-    // Vignette
-    if (effects.vignette) {
-      ctx.save();
-      const outerRadius = Math.sqrt(Math.pow(newWidth / 2, 2) + Math.pow(newHeight / 2, 2));
-      const gradient = ctx.createRadialGradient(
-        newWidth / 2, newHeight / 2, newWidth / 2.2, // inner circle, slightly smaller for stronger effect
-        newWidth / 2, newHeight / 2, outerRadius 
-      );
-      gradient.addColorStop(0, 'rgba(0,0,0,0)');
-      gradient.addColorStop(1, 'rgba(0,0,0,0.35)'); // Darker vignette
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, newWidth, newHeight);
-      ctx.restore();
+    // Vignette removed
+
+    // Floating motion CSS variables
+    if (cardRef.current) {
+      const movementStrength = mapRange(effects.animMovement, 0, 100, 0, 12); // 0px to 12px translation
+      const movementDuration = mapRange(effects.animMovement, 0, 100, 15, 5); // 15s (slow) to 5s (fast)
+      
+      cardRef.current.style.setProperty('--float-translateY', `-${movementStrength}px`);
+      cardRef.current.style.setProperty('--float-duration', `${movementDuration}s`);
     }
+
 
   }, [baseImage, effects, error, imageFile]);
 
   return (
-    <Card className={cn(
-        "shadow-xl h-full transition-all duration-500", // Enhanced shadow for depth
-        effects.floatingMotion && "animate-float"
-      )}>
+    <Card 
+      ref={cardRef}
+      className={cn(
+        "shadow-xl h-full transition-all duration-500",
+         effects.animMovement > 0 && "animate-float-dynamic" // Use new dynamic float class
+      )}
+      // style object for CSS variables will be set in useEffect for animMovement
+      >
       <CardHeader>
         <CardTitle className="font-headline text-xl flex items-center gap-2">
           <ImageIcon className="h-6 w-6 text-primary" />
