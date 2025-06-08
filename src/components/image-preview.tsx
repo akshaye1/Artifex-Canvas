@@ -13,16 +13,29 @@ interface ImagePreviewProps {
 }
 
 function mapRange(value: number, inMin: number, inMax: number, outMin: number, outMax: number): number {
-  if (inMin === inMax) return outMin; 
+  if (inMin === inMax) return outMin;
   return ((value - inMin) * (outMax - outMin)) / (inMax - inMin) + outMin;
 }
 
+function cosineInterpolate(y1: number, y2: number, mu: number): number {
+  const mu2 = (1 - Math.cos(mu * Math.PI)) / 2;
+  return y1 * (1 - mu2) + y2 * mu2;
+}
+
+type NoiseProfile = number[];
+interface EdgeNoiseProfiles {
+  top: NoiseProfile;
+  right: NoiseProfile;
+  bottom: NoiseProfile;
+  left: NoiseProfile;
+}
 
 export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [baseImage, setBaseImage] = useState<HTMLImageElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const [edgeNoiseProfiles, setEdgeNoiseProfiles] = useState<EdgeNoiseProfiles | null>(null);
 
   useEffect(() => {
     if (imageFile) {
@@ -34,17 +47,18 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
         img.onerror = () => {
           setError("Could not load image. Please try a different file.");
           setBaseImage(null);
-        }
+        };
         img.src = e.target?.result as string;
       };
       reader.onerror = () => {
         setError("Could not read file. Please try again.");
         setBaseImage(null);
-      }
+      };
       reader.readAsDataURL(imageFile);
     } else {
       setBaseImage(null);
       setError(null);
+      // Clear canvas if no image
       const canvas = canvasRef.current;
       if (canvas) {
         const ctx = canvas.getContext('2d');
@@ -53,9 +67,30 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
     }
   }, [imageFile]);
 
+
+  // Regenerate noise profiles when relevant effects change
+  useEffect(() => {
+    const maxDeviationBase = 1.0; // This will be scaled by animEdgeIntensity later
+    
+    const generateProfile = (numKeyPoints: number): NoiseProfile => {
+      return Array.from({ length: numKeyPoints }, () => (Math.random() - 0.5) * 2 * maxDeviationBase);
+    };
+
+    // Fewer key points for smoother underlying wave, controlled by animEdgeDetails
+    const numKeyPoints = Math.max(3, Math.floor(mapRange(effects.animEdgeDetails, 0, 100, 3, 15)));
+
+    setEdgeNoiseProfiles({
+      top: generateProfile(numKeyPoints),
+      right: generateProfile(numKeyPoints),
+      bottom: generateProfile(numKeyPoints),
+      left: generateProfile(numKeyPoints),
+    });
+  }, [effects.animEdgeDetails]);
+
+
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || !edgeNoiseProfiles) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -64,7 +99,7 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
       if (!canvas.width || !canvas.height) {
         const container = canvas.parentElement;
         const defaultWidth = container?.clientWidth ? Math.max(container.clientWidth - 32, 300) : 300;
-        const defaultHeight = defaultWidth * (3/4); 
+        const defaultHeight = defaultWidth * (3/4);
         canvas.width = defaultWidth;
         canvas.height = defaultHeight;
       }
@@ -81,17 +116,15 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
       }
       return;
     }
-    
+
     const container = canvas.parentElement;
-    const baseMaxWidth = container?.clientWidth ? Math.max(container.clientWidth - 32, 300) : 600; 
+    const baseMaxWidth = container?.clientWidth ? Math.max(container.clientWidth - 32, 300) : 600;
     const baseMaxHeight = 500;
 
     let { width: imgOriginalWidth, height: imgOriginalHeight } = baseImage;
-    
     const imageContentScale = mapRange(effects.animSize, 10, 100, 0.2, 1.0);
     let scaledImgContentWidth = imgOriginalWidth * imageContentScale;
     let scaledImgContentHeight = imgOriginalHeight * imageContentScale;
-
     let contentAspectRatio = scaledImgContentWidth / scaledImgContentHeight;
 
     if (scaledImgContentWidth > baseMaxWidth) {
@@ -102,148 +135,118 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
       scaledImgContentHeight = baseMaxHeight;
       scaledImgContentWidth = scaledImgContentHeight * contentAspectRatio;
     }
-     if (scaledImgContentWidth > baseMaxWidth) { 
-        scaledImgContentWidth = baseMaxWidth;
-        scaledImgContentHeight = scaledImgContentWidth / contentAspectRatio;
-    }
-     if (scaledImgContentHeight > baseMaxHeight) {
-        scaledImgContentHeight = baseMaxHeight;
-        scaledImgContentWidth = scaledImgContentHeight * contentAspectRatio;
-    }
-    
-    const borderThickness = mapRange(effects.animEdgeThickness, 0, 100, 0, Math.min(scaledImgContentWidth, scaledImgContentHeight) * 0.20);
 
+    const borderThickness = mapRange(effects.animEdgeThickness, 0, 100, 0, Math.min(scaledImgContentWidth, scaledImgContentHeight) * 0.20);
     const finalCanvasWidth = scaledImgContentWidth + 2 * borderThickness;
     const finalCanvasHeight = scaledImgContentHeight + 2 * borderThickness;
 
     canvas.width = finalCanvasWidth;
     canvas.height = finalCanvasHeight;
     ctx.clearRect(0, 0, finalCanvasWidth, finalCanvasHeight);
-    
-    ctx.save(); 
+    ctx.save();
 
     const shadowOffsetXVal = mapRange(effects.animShadowOffsetX, 0, 100, -25, 25);
     const shadowOffsetYVal = mapRange(effects.animShadowOffsetY, 0, 100, -25, 25);
     const shadowBlurVal = mapRange(effects.animShadowBlur, 0, 100, 0, 50);
     const shadowStrengthVal = mapRange(effects.animShadowStrength, 0, 100, 0, 0.75);
-    
+
     if (shadowStrengthVal > 0) {
-        ctx.shadowColor = `rgba(0, 0, 0, ${shadowStrengthVal})`;
-        ctx.shadowBlur = shadowBlurVal;
-        ctx.shadowOffsetX = shadowOffsetXVal;
-        ctx.shadowOffsetY = shadowOffsetYVal;
+      ctx.shadowColor = `rgba(0, 0, 0, ${shadowStrengthVal})`;
+      ctx.shadowBlur = shadowBlurVal;
+      ctx.shadowOffsetX = shadowOffsetXVal;
+      ctx.shadowOffsetY = shadowOffsetYVal;
     }
 
     const paperPath = new Path2D();
     const useTornEffect = borderThickness > 0.01 && effects.animEdgeIntensity > 0;
 
     if (useTornEffect) {
-      const baseMaxDev = mapRange(effects.animEdgeIntensity, 0, 100, 0, borderThickness * 0.30); 
-      const numSegments = Math.max(5, Math.floor(mapRange(effects.animEdgeDetails, 0, 100, 5, 75)));
-      const jaggednessFactor = mapRange(effects.animCutoutStyle, 0, 100, 0.1, 0.9);
-      let lastDeviation = 0; 
+      const baseMaxDeviation = mapRange(effects.animEdgeIntensity, 0, 100, 0, borderThickness * 0.45); // Max depth of tear
+      const numSegmentsPerEdge = Math.max(5, Math.floor(mapRange(effects.animEdgeDetails, 0, 100, 10, 50))); // More segments for finer detail overall
+      const fibrousJitterStrength = mapRange(effects.animCutoutStyle, 0, 100, 0, baseMaxDeviation * 0.2); // Strength of fine, fibrous jitter
 
-      const getDeviation = (currentLocalMaxDev: number) => {
-        const randomComponent = (Math.random() - 0.5) * 2 * currentLocalMaxDev;
-        let newDeviation = lastDeviation * (1 - jaggednessFactor) + randomComponent * jaggednessFactor;
-        newDeviation = Math.max(-currentLocalMaxDev, Math.min(currentLocalMaxDev, newDeviation));
-        lastDeviation = newDeviation;
-        return newDeviation;
+      const getDeviationForSegment = (profile: NoiseProfile, segmentIndex: number, totalSegments: number): number => {
+        const progress = segmentIndex / totalSegments;
+        const numKeyPoints = profile.length;
+        const keyPointIndexFloat = progress * (numKeyPoints - 1);
+        const keyPointIndex = Math.floor(keyPointIndexFloat);
+        
+        const y1 = profile[keyPointIndex];
+        const y2 = profile[Math.min(keyPointIndex + 1, numKeyPoints - 1)];
+        const segmentProgressInKeyPoint = keyPointIndexFloat - keyPointIndex;
+        
+        const interpolatedDeviation = cosineInterpolate(y1, y2, segmentProgressInKeyPoint) * baseMaxDeviation;
+        const fibrousJitter = (Math.random() - 0.5) * 2 * fibrousJitterStrength;
+        return interpolatedDeviation + fibrousJitter;
       };
       
-      const getParallelJitter = (currentLocalMaxDev: number) => (Math.random() - 0.5) * (currentLocalMaxDev * 0.2);
-
-      let currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
-      let p1x = 0 + getDeviation(currentMaxDev); 
-      let p1y = 0 + getDeviation(currentMaxDev); 
-      paperPath.moveTo(p1x, p1y);
-      lastDeviation = p1y; 
-
-      for (let i = 1; i < numSegments; i++) {
-        currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
+      // Top edge
+      paperPath.moveTo(getDeviationForSegment(edgeNoiseProfiles.left, numSegmentsPerEdge, numSegmentsPerEdge), getDeviationForSegment(edgeNoiseProfiles.top, 0, numSegmentsPerEdge));
+      for (let i = 1; i <= numSegmentsPerEdge; i++) {
         paperPath.lineTo(
-          (finalCanvasWidth / numSegments) * i + getParallelJitter(currentMaxDev), 
-          0 + getDeviation(currentMaxDev) 
+          (finalCanvasWidth / numSegmentsPerEdge) * i + (Math.random() -0.5) * fibrousJitterStrength * 0.5, // Small parallel jitter
+          getDeviationForSegment(edgeNoiseProfiles.top, i, numSegmentsPerEdge)
         );
       }
-      currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
-      let p2x = finalCanvasWidth + getDeviation(currentMaxDev); 
-      let p2y = 0 + getDeviation(currentMaxDev); 
-      paperPath.lineTo(p2x, p2y);
-      lastDeviation = p2x - finalCanvasWidth; 
-
-      for (let i = 1; i < numSegments; i++) {
-        currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
+      // Right edge
+      for (let i = 1; i <= numSegmentsPerEdge; i++) {
         paperPath.lineTo(
-          finalCanvasWidth + getDeviation(currentMaxDev), 
-          (finalCanvasHeight / numSegments) * i + getParallelJitter(currentMaxDev)
+          finalCanvasWidth + getDeviationForSegment(edgeNoiseProfiles.right, i, numSegmentsPerEdge),
+          (finalCanvasHeight / numSegmentsPerEdge) * i + (Math.random() -0.5) * fibrousJitterStrength * 0.5
         );
       }
-      currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
-      let p3x = finalCanvasWidth + getDeviation(currentMaxDev); 
-      let p3y = finalCanvasHeight + getDeviation(currentMaxDev); 
-      paperPath.lineTo(p3x, p3y);
-      lastDeviation = p3y - finalCanvasHeight; 
-
-      for (let i = numSegments - 1; i > 0; i--) {
-        currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
+      // Bottom edge
+      for (let i = numSegmentsPerEdge -1 ; i >= 0; i--) {
         paperPath.lineTo(
-          (finalCanvasWidth / numSegments) * i + getParallelJitter(currentMaxDev),
-          finalCanvasHeight + getDeviation(currentMaxDev) 
+          (finalCanvasWidth / numSegmentsPerEdge) * i + (Math.random() -0.5) * fibrousJitterStrength * 0.5,
+          finalCanvasHeight + getDeviationForSegment(edgeNoiseProfiles.bottom, i, numSegmentsPerEdge)
         );
       }
-      currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
-      let p4x = 0 + getDeviation(currentMaxDev); 
-      let p4y = finalCanvasHeight + getDeviation(currentMaxDev); 
-      paperPath.lineTo(p4x, p4y);
-      lastDeviation = p4x; 
-
-      for (let i = numSegments - 1; i > 0; i--) {
-        currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
+      // Left edge
+      for (let i = numSegmentsPerEdge - 1; i >= 0; i--) { // Iterate downwards to close path correctly
         paperPath.lineTo(
-          0 + getDeviation(currentMaxDev), 
-          (finalCanvasHeight / numSegments) * i + getParallelJitter(currentMaxDev)
+          getDeviationForSegment(edgeNoiseProfiles.left, i, numSegmentsPerEdge),
+          (finalCanvasHeight / numSegmentsPerEdge) * i + (Math.random() -0.5) * fibrousJitterStrength * 0.5
         );
       }
       paperPath.closePath();
       ctx.clip(paperPath);
     } else {
       paperPath.rect(0, 0, finalCanvasWidth, finalCanvasHeight);
+      // No clip if not torn, but fill will respect this path
     }
-    
+
     ctx.fillStyle = 'white';
     ctx.fill(paperPath);
 
-    if (shadowStrengthVal > 0) {
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur = 0;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 0;
+    if (shadowStrengthVal > 0) { // Remove shadow for subsequent drawing operations
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
     }
-    
+
     if (useTornEffect) {
       ctx.save();
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)'; 
-      ctx.lineWidth = 1.5; 
-      ctx.stroke(paperPath);
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)'; // Darker inner edge for depth
+      ctx.lineWidth = 1.5;
+      ctx.stroke(paperPath); // Stroke the *inside* of the clipped white area
       ctx.restore();
     }
 
     const imageX = borderThickness;
     const imageY = borderThickness;
     ctx.drawImage(baseImage, imageX, imageY, scaledImgContentWidth, scaledImgContentHeight);
-    
-    ctx.restore(); 
+    ctx.restore(); // Restore to pre-clip state if not already (though clip is on main context for now)
 
     const textureStrength = mapRange(effects.animTextureStrength, 0, 100, 0, 0.25);
     if (textureStrength > 0) {
       ctx.save();
       if (useTornEffect) {
-        const textureClipPath = new Path2D(paperPath); 
-         ctx.clip(textureClipPath); 
+         ctx.clip(paperPath); // Re-apply clip for texture if torn
       }
       ctx.globalAlpha = textureStrength;
-      ctx.fillStyle = 'rgba(180, 170, 150, 0.5)'; 
+      ctx.fillStyle = 'rgba(180, 170, 150, 0.5)';
       for (let i = 0; i < finalCanvasWidth * finalCanvasHeight * 0.001 * (effects.animTextureStrength / 20) ; i++) {
         const x = Math.random() * finalCanvasWidth;
         const y = Math.random() * finalCanvasHeight;
@@ -253,25 +256,24 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
       ctx.globalAlpha = 1.0;
       ctx.restore();
     }
-    
+
     if (cardRef.current) {
       const movementStrength = mapRange(effects.animMovement, 0, 100, 0, 12);
-      const movementDuration = mapRange(effects.animMovement, 0, 100, 15, 5); 
-      
+      const movementDuration = mapRange(effects.animMovement, 0, 100, 15, 5);
       cardRef.current.style.setProperty('--float-translateY', `-${movementStrength}px`);
       cardRef.current.style.setProperty('--float-duration', `${movementDuration}s`);
     }
 
-  }, [baseImage, effects, error, imageFile]);
+  }, [baseImage, effects, error, imageFile, edgeNoiseProfiles]);
 
   return (
-    <Card 
+    <Card
       ref={cardRef}
       className={cn(
         "shadow-xl h-full transition-all duration-500",
          effects.animMovement > 0 && "animate-float-dynamic"
       )}
-      >
+    >
       <CardHeader>
         <CardTitle className="font-headline text-xl flex items-center gap-2">
           <ImageIcon className="h-6 w-6 text-primary" />
@@ -284,4 +286,3 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
     </Card>
   );
 }
-
