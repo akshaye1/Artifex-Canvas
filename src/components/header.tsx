@@ -1,7 +1,7 @@
+
 import Link from 'next/link';
 import { AppLogo } from './app-logo';
-import { Button } from '@/components/ui/button';
-import { UserCircle } from 'lucide-react';
+import { ThemeToggleButton } from './theme-toggle-button';
 
 export function Header() {
   return (
@@ -11,11 +11,7 @@ export function Header() {
           <AppLogo />
         </Link>
         <nav className="flex items-center gap-4">
-          {/* Placeholder for future navigation or user actions */}
-          {/* <Button variant="ghost" size="icon">
-            <UserCircle className="h-6 w-6" />
-            <span className="sr-only">User Profile</span>
-          </Button> */}
+          <ThemeToggleButton />
         </nav>
       </div>
     </header>
