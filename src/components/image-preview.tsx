@@ -12,9 +12,8 @@ interface ImagePreviewProps {
   effects: AppliedEffects;
 }
 
-// Helper function to map a value from one range to another
 function mapRange(value: number, inMin: number, inMax: number, outMin: number, outMax: number): number {
-  if (inMin === inMax) return outMin; // Avoid division by zero
+  if (inMin === inMax) return outMin; 
   return ((value - inMin) * (outMax - outMin)) / (inMax - inMin) + outMin;
 }
 
@@ -85,44 +84,33 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
     
     const container = canvas.parentElement;
     const baseMaxWidth = container?.clientWidth ? Math.max(container.clientWidth - 32, 300) : 600; 
-    const baseMaxHeight = 500; 
+    const baseMaxHeight = 500;
 
     let { width: imgOriginalWidth, height: imgOriginalHeight } = baseImage;
-    let ratio = imgOriginalWidth / imgOriginalHeight;
-
-    let scaledImgContentWidth = imgOriginalWidth;
-    let scaledImgContentHeight = imgOriginalHeight;
-
-    // Scale content based on animSize
+    
     const imageContentScale = mapRange(effects.animSize, 10, 100, 0.2, 1.0);
-    scaledImgContentWidth *= imageContentScale;
-    scaledImgContentHeight *= imageContentScale;
+    let scaledImgContentWidth = imgOriginalWidth * imageContentScale;
+    let scaledImgContentHeight = imgOriginalHeight * imageContentScale;
 
-    // Adjust aspect ratio if content scaling distorts it (it shouldn't with current logic, but good to be aware)
-    // Re-calculate ratio for the scaled content
-    ratio = scaledImgContentWidth / scaledImgContentHeight;
+    let contentAspectRatio = scaledImgContentWidth / scaledImgContentHeight;
 
-
-    // Fit scaled content within max dimensions while preserving its new aspect ratio
     if (scaledImgContentWidth > baseMaxWidth) {
       scaledImgContentWidth = baseMaxWidth;
-      scaledImgContentHeight = scaledImgContentWidth / ratio;
+      scaledImgContentHeight = scaledImgContentWidth / contentAspectRatio;
     }
     if (scaledImgContentHeight > baseMaxHeight) {
       scaledImgContentHeight = baseMaxHeight;
-      scaledImgContentWidth = scaledImgContentHeight * ratio;
+      scaledImgContentWidth = scaledImgContentHeight * contentAspectRatio;
     }
-    // Final check if width adjustment pushed height over limit, or vice-versa
      if (scaledImgContentWidth > baseMaxWidth) { 
         scaledImgContentWidth = baseMaxWidth;
-        scaledImgContentHeight = scaledImgContentWidth / ratio;
+        scaledImgContentHeight = scaledImgContentWidth / contentAspectRatio;
     }
      if (scaledImgContentHeight > baseMaxHeight) {
         scaledImgContentHeight = baseMaxHeight;
-        scaledImgContentWidth = scaledImgContentHeight * ratio;
+        scaledImgContentWidth = scaledImgContentHeight * contentAspectRatio;
     }
-
-
+    
     const borderThickness = mapRange(effects.animEdgeThickness, 0, 100, 0, Math.min(scaledImgContentWidth, scaledImgContentHeight) * 0.20);
 
     const finalCanvasWidth = scaledImgContentWidth + 2 * borderThickness;
@@ -131,9 +119,6 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
     canvas.width = finalCanvasWidth;
     canvas.height = finalCanvasHeight;
     ctx.clearRect(0, 0, finalCanvasWidth, finalCanvasHeight);
-
-    const imageX = borderThickness;
-    const imageY = borderThickness;
     
     ctx.save(); 
 
@@ -153,78 +138,82 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
     const useTornEffect = borderThickness > 0.01 && effects.animEdgeIntensity > 0;
 
     if (useTornEffect) {
-      const maxDev = mapRange(effects.animEdgeIntensity, 0, 100, 0, borderThickness * 0.35); // Shallower tears
-      const numSegments = Math.max(5, Math.floor(mapRange(effects.animEdgeDetails, 0, 100, 5, 50))); // More segments for detail
-      const jaggednessFactor = mapRange(effects.animCutoutStyle, 0, 100, 0.3, 0.8);
+      const baseMaxDev = mapRange(effects.animEdgeIntensity, 0, 100, 0, borderThickness * 0.30); 
+      const numSegments = Math.max(5, Math.floor(mapRange(effects.animEdgeDetails, 0, 100, 5, 75)));
+      const jaggednessFactor = mapRange(effects.animCutoutStyle, 0, 100, 0.1, 0.9);
       let lastDeviation = 0; 
 
-      const getDeviation = () => {
-        const randomComponent = (Math.random() - 0.5) * 2 * maxDev;
+      const getDeviation = (currentLocalMaxDev: number) => {
+        const randomComponent = (Math.random() - 0.5) * 2 * currentLocalMaxDev;
         let newDeviation = lastDeviation * (1 - jaggednessFactor) + randomComponent * jaggednessFactor;
-        newDeviation = Math.max(-maxDev, Math.min(maxDev, newDeviation));
+        newDeviation = Math.max(-currentLocalMaxDev, Math.min(currentLocalMaxDev, newDeviation));
         lastDeviation = newDeviation;
         return newDeviation;
       };
       
-      const parallelJitter = () => (Math.random() - 0.5) * (maxDev * 0.3);
+      const getParallelJitter = (currentLocalMaxDev: number) => (Math.random() - 0.5) * (currentLocalMaxDev * 0.2);
 
-      let p1x = 0 + getDeviation(); 
-      let p1y = 0 + getDeviation(); 
+      let currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
+      let p1x = 0 + getDeviation(currentMaxDev); 
+      let p1y = 0 + getDeviation(currentMaxDev); 
       paperPath.moveTo(p1x, p1y);
       lastDeviation = p1y; 
 
       for (let i = 1; i < numSegments; i++) {
+        currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
         paperPath.lineTo(
-          (finalCanvasWidth / numSegments) * i + parallelJitter(), 
-          0 + getDeviation() 
+          (finalCanvasWidth / numSegments) * i + getParallelJitter(currentMaxDev), 
+          0 + getDeviation(currentMaxDev) 
         );
       }
-      let p2x = finalCanvasWidth + getDeviation(); 
-      let p2y = 0 + getDeviation(); 
+      currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
+      let p2x = finalCanvasWidth + getDeviation(currentMaxDev); 
+      let p2y = 0 + getDeviation(currentMaxDev); 
       paperPath.lineTo(p2x, p2y);
       lastDeviation = p2x - finalCanvasWidth; 
 
       for (let i = 1; i < numSegments; i++) {
+        currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
         paperPath.lineTo(
-          finalCanvasWidth + getDeviation(), 
-          (finalCanvasHeight / numSegments) * i + parallelJitter()
+          finalCanvasWidth + getDeviation(currentMaxDev), 
+          (finalCanvasHeight / numSegments) * i + getParallelJitter(currentMaxDev)
         );
       }
-      let p3x = finalCanvasWidth + getDeviation(); 
-      let p3y = finalCanvasHeight + getDeviation(); 
+      currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
+      let p3x = finalCanvasWidth + getDeviation(currentMaxDev); 
+      let p3y = finalCanvasHeight + getDeviation(currentMaxDev); 
       paperPath.lineTo(p3x, p3y);
       lastDeviation = p3y - finalCanvasHeight; 
 
       for (let i = numSegments - 1; i > 0; i--) {
+        currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
         paperPath.lineTo(
-          (finalCanvasWidth / numSegments) * i + parallelJitter(),
-          finalCanvasHeight + getDeviation() 
+          (finalCanvasWidth / numSegments) * i + getParallelJitter(currentMaxDev),
+          finalCanvasHeight + getDeviation(currentMaxDev) 
         );
       }
-      let p4x = 0 + getDeviation(); 
-      let p4y = finalCanvasHeight + getDeviation(); 
+      currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
+      let p4x = 0 + getDeviation(currentMaxDev); 
+      let p4y = finalCanvasHeight + getDeviation(currentMaxDev); 
       paperPath.lineTo(p4x, p4y);
       lastDeviation = p4x; 
 
       for (let i = numSegments - 1; i > 0; i--) {
+        currentMaxDev = baseMaxDev * (0.8 + Math.random() * 0.4);
         paperPath.lineTo(
-          0 + getDeviation(), 
-          (finalCanvasHeight / numSegments) * i + parallelJitter()
+          0 + getDeviation(currentMaxDev), 
+          (finalCanvasHeight / numSegments) * i + getParallelJitter(currentMaxDev)
         );
       }
       paperPath.closePath();
       ctx.clip(paperPath);
     } else {
-      // If no torn effect, just draw a rectangle for the paper base
       paperPath.rect(0, 0, finalCanvasWidth, finalCanvasHeight);
-      // No clip needed here if not torn, but if shadow applied, it's on this rect
     }
     
-    // Fill the paper base (clipped or rectangular)
     ctx.fillStyle = 'white';
-    ctx.fill(paperPath); // Use fill(path) for complex shapes
+    ctx.fill(paperPath);
 
-    // Clear shadow for subsequent drawing operations if it was applied for the paper shape
     if (shadowStrengthVal > 0) {
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
@@ -232,30 +221,25 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
         ctx.shadowOffsetY = 0;
     }
     
-    // Inner dark edge for torn effect
     if (useTornEffect) {
       ctx.save();
-      // No need to re-clip if already clipped, but ensure stroke is within the filled area
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)'; 
       ctx.lineWidth = 1.5; 
-      ctx.stroke(paperPath); // Stroke along the existing (clipped) path
+      ctx.stroke(paperPath);
       ctx.restore();
     }
 
-    // Draw the actual image content
+    const imageX = borderThickness;
+    const imageY = borderThickness;
     ctx.drawImage(baseImage, imageX, imageY, scaledImgContentWidth, scaledImgContentHeight);
     
-    ctx.restore(); // This restore matches the save() before shadow setup & potential clip
+    ctx.restore(); 
 
-    // Apply texture if needed (needs to be done after main drawing and shadow restore)
     const textureStrength = mapRange(effects.animTextureStrength, 0, 100, 0, 0.25);
     if (textureStrength > 0) {
       ctx.save();
       if (useTornEffect) {
-        // Re-apply clip for texture to conform to torn edges
-        // Note: The paperPath coordinates are relative to the canvas (0,0)
-        // This clip should be applied *before* texture drawing.
-        const textureClipPath = new Path2D(paperPath); // Create a new instance if paperPath was modified
+        const textureClipPath = new Path2D(paperPath); 
          ctx.clip(textureClipPath); 
       }
       ctx.globalAlpha = textureStrength;
@@ -270,11 +254,8 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
       ctx.restore();
     }
     
-    // Floating animation control
     if (cardRef.current) {
       const movementStrength = mapRange(effects.animMovement, 0, 100, 0, 12);
-      // Make duration inversely proportional to movement strength for more natural effect
-      // Faster/shorter duration for stronger movement, slower/longer for subtle movement
       const movementDuration = mapRange(effects.animMovement, 0, 100, 15, 5); 
       
       cardRef.current.style.setProperty('--float-translateY', `-${movementStrength}px`);
@@ -298,9 +279,9 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
         </CardTitle>
       </CardHeader>
       <CardContent className="flex items-center justify-center aspect-[4/3] bg-muted/20 rounded-b-lg overflow-hidden p-2">
-        {/* Ensure canvas does not exceed its parent's bounds due to high border/shadow values */}
         <canvas ref={canvasRef} className="max-w-full max-h-full rounded shadow-inner"></canvas>
       </CardContent>
     </Card>
   );
 }
+
