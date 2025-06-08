@@ -14,6 +14,7 @@ interface ImagePreviewProps {
 
 // Helper function to map a value from one range to another
 function mapRange(value: number, inMin: number, inMax: number, outMin: number, outMax: number): number {
+  if (inMin === inMax) return outMin; // Avoid division by zero
   return ((value - inMin) * (outMax - outMin)) / (inMax - inMin) + outMin;
 }
 
@@ -61,6 +62,14 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
 
     if (!baseImage) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+       // Set canvas to a default size if no image, to allow text to be centered
+      if (!canvas.width || !canvas.height) {
+        const container = canvas.parentElement;
+        const defaultWidth = container?.clientWidth ? Math.max(container.clientWidth - 32, 300) : 300;
+        const defaultHeight = defaultWidth * (3/4); // Maintain aspect ratio for placeholder
+        canvas.width = defaultWidth;
+        canvas.height = defaultHeight;
+      }
       if (!imageFile && !error) {
         ctx.fillStyle = 'hsl(var(--muted-foreground))';
         ctx.textAlign = 'center';
@@ -76,121 +85,137 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
     }
     
     const container = canvas.parentElement;
-    const baseMaxWidth = container?.clientWidth ? Math.max(container.clientWidth - 32, 300) : 600;
-    const baseMaxHeight = 500; 
+    const baseMaxWidth = container?.clientWidth ? Math.max(container.clientWidth - 32, 300) : 600; // Max width for the image content itself
+    const baseMaxHeight = 500; // Max height for the image content itself
 
-    let { width: imgWidth, height: imgHeight } = baseImage;
-    let ratio = imgWidth / imgHeight;
+    let { width: imgOriginalWidth, height: imgOriginalHeight } = baseImage;
+    let ratio = imgOriginalWidth / imgOriginalHeight;
 
-    let newWidth = imgWidth;
-    let newHeight = imgHeight;
+    let scaledImgWidth = imgOriginalWidth;
+    let scaledImgHeight = imgOriginalHeight;
 
-    if (newWidth > baseMaxWidth) {
-      newWidth = baseMaxWidth;
-      newHeight = newWidth / ratio;
+    // Scale based on container limits
+    if (scaledImgWidth > baseMaxWidth) {
+      scaledImgWidth = baseMaxWidth;
+      scaledImgHeight = scaledImgWidth / ratio;
     }
-    if (newHeight > baseMaxHeight) {
-      newHeight = baseMaxHeight;
-      newWidth = newHeight * ratio;
+    if (scaledImgHeight > baseMaxHeight) {
+      scaledImgHeight = baseMaxHeight;
+      scaledImgWidth = scaledImgHeight * ratio;
     }
-    if (newWidth > baseMaxWidth) { // Re-check due to potential adjustment
-        newWidth = baseMaxWidth;
-        newHeight = newWidth / ratio;
+     if (scaledImgWidth > baseMaxWidth) { 
+        scaledImgWidth = baseMaxWidth;
+        scaledImgHeight = scaledImgWidth / ratio;
     }
-    
-    // Apply animSize for overall scale
-    const displayScale = mapRange(effects.animSize, 10, 100, 0.1, 1.0);
-    const canvasWidth = newWidth * displayScale;
-    const canvasHeight = newHeight * displayScale;
 
-    canvas.width = canvasWidth;
-    canvas.height = canvasHeight;
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-    
-    // Old filter string is removed
-    // ctx.filter = filterString.trim();
+    // Apply animSize for overall scale of the image content
+    const imageContentScale = mapRange(effects.animSize, 10, 100, 0.2, 1.0);
+    scaledImgWidth *= imageContentScale;
+    scaledImgHeight *= imageContentScale;
 
-    // Apply drop shadow from new controls
-    const shadowOffsetX = mapRange(effects.animShadowOffsetX, 0, 100, -20, 20);
-    const shadowOffsetY = mapRange(effects.animShadowOffsetY, 0, 100, -20, 20);
-    const shadowBlur = mapRange(effects.animShadowBlur, 0, 100, 0, 40);
-    const shadowStrength = mapRange(effects.animShadowStrength, 0, 100, 0, 0.6);
+    // Calculate border size based on animEdgeThickness
+    // Border size is relative to the smaller dimension of the scaled image content
+    const borderSize = mapRange(effects.animEdgeThickness, 0, 100, 0, Math.min(scaledImgWidth, scaledImgHeight) * 0.20);
+
+    // Final canvas dimensions include the border
+    const finalCanvasWidth = scaledImgWidth + 2 * borderSize;
+    const finalCanvasHeight = scaledImgHeight + 2 * borderSize;
+
+    canvas.width = finalCanvasWidth;
+    canvas.height = finalCanvasHeight;
+    ctx.clearRect(0, 0, finalCanvasWidth, finalCanvasHeight);
+
+    // Image position within the canvas (offset by borderSize)
+    const imageX = borderSize;
+    const imageY = borderSize;
     
-    if (shadowStrength > 0) {
-        ctx.shadowColor = `rgba(0, 0, 0, ${shadowStrength})`;
-        ctx.shadowBlur = shadowBlur;
-        ctx.shadowOffsetX = shadowOffsetX;
-        ctx.shadowOffsetY = shadowOffsetY;
+    ctx.save(); // Save context state before any effects
+
+    // Apply drop shadow (from animShadow controls) to the entire paper shape
+    const shadowOffsetXVal = mapRange(effects.animShadowOffsetX, 0, 100, -25, 25);
+    const shadowOffsetYVal = mapRange(effects.animShadowOffsetY, 0, 100, -25, 25);
+    const shadowBlurVal = mapRange(effects.animShadowBlur, 0, 100, 0, 50);
+    const shadowStrengthVal = mapRange(effects.animShadowStrength, 0, 100, 0, 0.75);
+    
+    if (shadowStrengthVal > 0) {
+        ctx.shadowColor = `rgba(0, 0, 0, ${shadowStrengthVal})`;
+        ctx.shadowBlur = shadowBlurVal;
+        ctx.shadowOffsetX = shadowOffsetXVal;
+        ctx.shadowOffsetY = shadowOffsetYVal;
     }
-    
-    // Save context before clipping for edge effects
-    ctx.save();
 
-    // Edge Style (detailed torn/cutout effect)
-    const edgeThickness = mapRange(effects.animEdgeThickness, 0, 100, 0, Math.min(canvasWidth, canvasHeight) * 0.1); // Max 10% of smallest dim
+    // Path for torn/cutout border
+    const paperPath = new Path2D();
+    const useTornEffect = borderSize > 0.1 && effects.animEdgeIntensity > 0;
 
-    if (edgeThickness > 0) {
-      const edgeIntensity = mapRange(effects.animEdgeIntensity, 0, 100, 0, edgeThickness * 0.8); // Amplitude relative to thickness
-      const edgeDetails = Math.floor(mapRange(effects.animEdgeDetails, 0, 100, 5, 50)); // Number of points/segments
-      const cutoutStyleParam = effects.animCutoutStyle / 100; // 0 to 1, for varying randomness or style
+    if (useTornEffect) {
+      const maxDeviation = mapRange(effects.animEdgeIntensity, 0, 100, 0, borderSize * 0.98);
+      const numSegments = Math.floor(mapRange(effects.animEdgeDetails, 0, 100, 3, 15)); // Segments per edge
+      // const cutoutStyleParam = effects.animCutoutStyle / 100; // For future use if varying tear style
 
-      const path = new Path2D();
-      
+      const jitter = () => (Math.random() - 0.5) * 2 * maxDeviation * 0.5; // Smaller general jitter
+      const deviationY = () => Math.random() * maxDeviation;
+      const deviationX = () => Math.random() * maxDeviation;
+
+      // Start at top-left
+      paperPath.moveTo(deviationX(), deviationY());
+
       // Top edge
-      path.moveTo(-edgeIntensity * cutoutStyleParam, Math.random() * edgeIntensity - edgeIntensity / 2);
-      for (let i = 0; i <= edgeDetails; i++) {
-        const x = (canvasWidth / edgeDetails) * i;
-        const y = Math.random() * edgeIntensity - edgeIntensity / 2 + (Math.sin(i * cutoutStyleParam * Math.PI * 2) * edgeIntensity * (1-cutoutStyleParam))/2;
-        path.lineTo(x, Math.max(0, Math.min(edgeThickness, y + edgeThickness / 2)));
+      for (let i = 1; i < numSegments; i++) {
+          paperPath.lineTo((finalCanvasWidth / numSegments) * i + jitter(), deviationY());
       }
-      path.lineTo(canvasWidth + edgeIntensity * cutoutStyleParam, Math.random() * edgeIntensity - edgeIntensity / 2);
-      
+      paperPath.lineTo(finalCanvasWidth - deviationX(), deviationY()); // Top-right corner
+
       // Right edge
-      for (let i = 0; i <= edgeDetails; i++) {
-        const y = (canvasHeight / edgeDetails) * i;
-        const x = canvasWidth - (Math.random() * edgeIntensity - edgeIntensity / 2 + (Math.cos(i * cutoutStyleParam * Math.PI*2) * edgeIntensity * (1-cutoutStyleParam))/2 );
-        path.lineTo(Math.max(canvasWidth - edgeThickness, Math.min(canvasWidth, x - edgeThickness / 2)), y);
+      for (let i = 1; i < numSegments; i++) {
+          paperPath.lineTo(finalCanvasWidth - deviationX(), (finalCanvasHeight / numSegments) * i + jitter());
       }
-      path.lineTo(canvasWidth + edgeIntensity * cutoutStyleParam, canvasHeight + edgeIntensity * cutoutStyleParam);
+      paperPath.lineTo(finalCanvasWidth - deviationX(), finalCanvasHeight - deviationY()); // Bottom-right
 
       // Bottom edge
-      for (let i = edgeDetails; i >= 0; i--) {
-        const x = (canvasWidth / edgeDetails) * i;
-        const y = canvasHeight - (Math.random() * edgeIntensity - edgeIntensity / 2 + (Math.sin(i * cutoutStyleParam * Math.PI*2 + Math.PI) * edgeIntensity * (1-cutoutStyleParam))/2);
-        path.lineTo(x, Math.max(canvasHeight - edgeThickness, Math.min(canvasHeight, y - edgeThickness / 2)));
+      for (let i = numSegments - 1; i > 0; i--) {
+          paperPath.lineTo((finalCanvasWidth / numSegments) * i + jitter(), finalCanvasHeight - deviationY());
       }
-      path.lineTo(-edgeIntensity * cutoutStyleParam, canvasHeight + edgeIntensity * cutoutStyleParam);
-      
+      paperPath.lineTo(deviationX(), finalCanvasHeight - deviationY()); // Bottom-left
+
       // Left edge
-      for (let i = edgeDetails; i >= 0; i--) {
-        const y = (canvasHeight / edgeDetails) * i;
-        const x = Math.random() * edgeIntensity - edgeIntensity / 2 + (Math.cos(i * cutoutStyleParam * Math.PI*2 + Math.PI) * edgeIntensity * (1-cutoutStyleParam))/2;
-        path.lineTo(Math.max(0, Math.min(edgeThickness, x + edgeThickness / 2)), y);
+      for (let i = numSegments - 1; i > 0; i--) {
+          paperPath.lineTo(deviationX(), (finalCanvasHeight / numSegments) * i + jitter());
       }
-      path.closePath();
-      ctx.clip(path);
+      paperPath.closePath();
+      ctx.clip(paperPath);
+    }
+    
+    // Draw the white paper base (will be clipped if torn effect is active)
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, finalCanvasWidth, finalCanvasHeight);
+
+    // Reset shadow for drawing the image itself if it was applied for the paper
+    if (shadowStrengthVal > 0) {
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
     }
 
-    ctx.drawImage(baseImage, 0, 0, canvasWidth, canvasHeight);
-    ctx.restore(); // Restore context after clipping (and drawing main image)
+    // Draw the actual image, scaled and positioned
+    ctx.drawImage(baseImage, imageX, imageY, scaledImgWidth, scaledImgHeight);
+    
+    ctx.restore(); // Restore context (removes paper clip and paper's shadow settings)
 
-    // Reset shadow for subsequent drawing operations like texture
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-    // ctx.filter = 'none'; // Old filter
 
-    // Paper Texture
-    const textureStrength = mapRange(effects.animTextureStrength, 0, 100, 0, 0.25); // Max 25% opacity
+    // Paper Texture (applied over image and border, respecting outer clip if any)
+    const textureStrength = mapRange(effects.animTextureStrength, 0, 100, 0, 0.25);
     if (textureStrength > 0) {
       ctx.save();
+      if (useTornEffect) {
+        ctx.clip(paperPath); // Re-apply the same path for texture
+      }
       ctx.globalAlpha = textureStrength;
-      // Simple cross-hatch like texture or noise
-      ctx.fillStyle = 'rgba(180, 170, 150, 0.5)'; // Muted brown/gray
-      for (let i = 0; i < canvasWidth * canvasHeight * 0.001 * (effects.animTextureStrength / 20) ; i++) { // Density based on strength
-        const x = Math.random() * canvasWidth;
-        const y = Math.random() * canvasHeight;
+      ctx.fillStyle = 'rgba(180, 170, 150, 0.5)'; 
+      for (let i = 0; i < finalCanvasWidth * finalCanvasHeight * 0.001 * (effects.animTextureStrength / 20) ; i++) {
+        const x = Math.random() * finalCanvasWidth;
+        const y = Math.random() * finalCanvasHeight;
         const size = Math.random() * 2 + 0.5;
         ctx.fillRect(x, y, size, size);
       }
@@ -198,17 +223,14 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
       ctx.restore();
     }
     
-    // Vignette removed
-
     // Floating motion CSS variables
     if (cardRef.current) {
-      const movementStrength = mapRange(effects.animMovement, 0, 100, 0, 12); // 0px to 12px translation
-      const movementDuration = mapRange(effects.animMovement, 0, 100, 15, 5); // 15s (slow) to 5s (fast)
+      const movementStrength = mapRange(effects.animMovement, 0, 100, 0, 12);
+      const movementDuration = mapRange(effects.animMovement, 0, 100, 15, 5); 
       
       cardRef.current.style.setProperty('--float-translateY', `-${movementStrength}px`);
       cardRef.current.style.setProperty('--float-duration', `${movementDuration}s`);
     }
-
 
   }, [baseImage, effects, error, imageFile]);
 
@@ -217,9 +239,8 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
       ref={cardRef}
       className={cn(
         "shadow-xl h-full transition-all duration-500",
-         effects.animMovement > 0 && "animate-float-dynamic" // Use new dynamic float class
+         effects.animMovement > 0 && "animate-float-dynamic"
       )}
-      // style object for CSS variables will be set in useEffect for animMovement
       >
       <CardHeader>
         <CardTitle className="font-headline text-xl flex items-center gap-2">
@@ -228,8 +249,10 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
         </CardTitle>
       </CardHeader>
       <CardContent className="flex items-center justify-center aspect-[4/3] bg-muted/20 rounded-b-lg overflow-hidden p-2">
-        <canvas ref={canvasRef} className="max-w-full max-h-full rounded shadow-inner bg-card"></canvas>
+        {/* Ensure canvas itself doesn't have a conflicting background if transparent areas are expected */}
+        <canvas ref={canvasRef} className="max-w-full max-h-full rounded shadow-inner"></canvas>
       </CardContent>
     </Card>
   );
 }
+
