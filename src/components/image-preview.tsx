@@ -1,9 +1,11 @@
+
 'use client';
 
 import React, { useRef, useEffect, useState } from 'react';
 import type { AppliedEffects } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Image as ImageIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface ImagePreviewProps {
   imageFile: File | null;
@@ -38,7 +40,6 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
     } else {
       setBaseImage(null);
       setError(null);
-      // Clear canvas if no file
       const canvas = canvasRef.current;
       if (canvas) {
         const ctx = canvas.getContext('2d');
@@ -50,36 +51,29 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
   }, [imageFile]);
 
   useEffect(() => {
-    if (!baseImage || !canvasRef.current) {
-        // If no base image, ensure canvas is cleared or shows a placeholder
-        const canvas = canvasRef.current;
-        if (canvas) {
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                // Optionally draw a placeholder message
-                if (!imageFile && !error) {
-                    ctx.fillStyle = 'hsl(var(--muted-foreground))';
-                    ctx.textAlign = 'center';
-                    ctx.font = '16px var(--font-body)';
-                    ctx.fillText('Upload an image to see the preview', canvas.width / 2, canvas.height / 2);
-                } else if (error) {
-                    ctx.fillStyle = 'hsl(var(--destructive))';
-                    ctx.textAlign = 'center';
-                    ctx.font = '16px var(--font-body)';
-                    ctx.fillText(error, canvas.width / 2, canvas.height / 2);
-                }
-            }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    if (!baseImage) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (!imageFile && !error) {
+            ctx.fillStyle = 'hsl(var(--muted-foreground))';
+            ctx.textAlign = 'center';
+            ctx.font = '16px var(--font-body)';
+            ctx.fillText('Upload an image to see the preview', canvas.width / 2, canvas.height / 2);
+        } else if (error) {
+            ctx.fillStyle = 'hsl(var(--destructive))'; // Ensure this matches theme for errors
+            ctx.textAlign = 'center';
+            ctx.font = '16px var(--font-body)';
+            ctx.fillText(error, canvas.width / 2, canvas.height / 2);
         }
         return;
     }
     
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
     const container = canvas.parentElement;
-    const maxWidth = container?.clientWidth ? Math.max(container.clientWidth - 32, 300) : 600; // Max width of container (CardContent padding)
+    const maxWidth = container?.clientWidth ? Math.max(container.clientWidth - 32, 300) : 600;
     const maxHeight = 500; 
 
     let { width: imgWidth, height: imgHeight } = baseImage;
@@ -96,18 +90,16 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
       newHeight = maxHeight;
       newWidth = newHeight * ratio;
     }
-    // Second pass to ensure maxWidth is still respected after height adjustment
-     if (newWidth > maxWidth) {
+    if (newWidth > maxWidth) {
       newWidth = maxWidth;
       newHeight = newWidth / ratio;
     }
 
-
     canvas.width = newWidth;
     canvas.height = newHeight;
-
     ctx.clearRect(0, 0, newWidth, newHeight);
 
+    // Apply filters
     let filterString = '';
     filterString += `brightness(${effects.brightness}%) `;
     filterString += `contrast(${effects.contrast}%) `;
@@ -116,57 +108,94 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
       filterString += `grayscale(100%) `;
     }
     ctx.filter = filterString.trim();
+
+    // Apply drop shadow if enabled (before drawing image)
+    if (effects.dropShadow) {
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+        ctx.shadowBlur = 10;
+        ctx.shadowOffsetX = 4;
+        ctx.shadowOffsetY = 4;
+    }
     
     ctx.drawImage(baseImage, 0, 0, newWidth, newHeight);
-    ctx.filter = 'none'; // Reset filter for subsequent drawing operations
+
+    // Reset shadow and filter for subsequent drawing operations
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.filter = 'none';
 
     // Paper Texture
     if (effects.paperTexture !== 'none') {
       ctx.save();
+      ctx.globalAlpha = effects.paperTexture === 'canvas' ? 0.15 : 0.2; // Slightly more prominent
       if (effects.paperTexture === 'canvas') {
-        ctx.fillStyle = 'rgba(220, 210, 190, 0.1)'; // Light beige overlay
+        ctx.fillStyle = 'rgba(220, 210, 190, 0.2)'; 
         ctx.fillRect(0, 0, newWidth, newHeight);
       } else if (effects.paperTexture === 'watercolor') {
-        for (let i = 0; i < newWidth * newHeight * 0.03; i++) {
+        for (let i = 0; i < newWidth * newHeight * 0.05; i++) { // More specks
           const x = Math.random() * newWidth;
           const y = Math.random() * newHeight;
-          const alpha = Math.random() * 0.05;
-          ctx.fillStyle = `rgba(100, 80, 60, ${alpha})`; // Brownish specks
+          const alpha = Math.random() * 0.08;
+          ctx.fillStyle = `rgba(100, 80, 60, ${alpha})`;
           ctx.fillRect(x, y, Math.random() * 2 + 1, Math.random() * 2 + 1);
         }
       }
+      ctx.globalAlpha = 1.0;
       ctx.restore();
     }
 
-    // Edge Style
+    // Edge Style - Enhanced Torn Edge
     if (effects.edgeStyle === 'torn') {
       ctx.save();
-      ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-      ctx.lineWidth = Math.min(newWidth, newHeight) * 0.015; // Relative to image size
-      ctx.beginPath();
-      let step = 20;
-      for(let side = 0; side < 4; side++) {
-          for(let i = 0; i < (side % 2 === 0 ? newWidth : newHeight); i+=step) {
-              let x, y;
-              let roughness = 5;
-              if(side === 0) { x = i; y = (Math.random()-0.5)*roughness; } // top
-              else if(side === 1) { x = newWidth + (Math.random()-0.5)*roughness; y = i; } // right
-              else if(side === 2) { x = newWidth - i; y = newHeight + (Math.random()-0.5)*roughness; } // bottom
-              else { x = (Math.random()-0.5)*roughness; y = newHeight - i; } // left
-              if(i === 0 && side === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-          }
-      }
-      ctx.closePath();
-      // Instead of stroke for torn edge, use it as a clipping path
-      // For simplicity here, we will draw a subtle darker border to simulate roughness
-      ctx.globalCompositeOperation = 'destination-in'; // This will clip the existing image
-      ctx.fill(); // Fill the path
-      ctx.globalCompositeOperation = 'source-over'; // Reset composite operation
+      const path = new Path2D();
+      let step = 15; // Smaller step for more detail
+      let roughness = Math.min(newWidth, newHeight) * 0.025; // Increased relative roughness
 
-      // Add a subtle shadow/darkening to the "torn" area
-      ctx.strokeStyle = "rgba(0,0,0,0.05)";
-      ctx.lineWidth = 2;
-      ctx.stroke(); // Stroke the same path again but with different style
+      // Top edge
+      path.moveTo(0, (Math.random() - 0.5) * roughness);
+      for (let i = 0; i < newWidth; i += (step + (Math.random() -0.5) * step * 0.8)) {
+        path.lineTo(Math.min(i, newWidth), (Math.random() - 0.5) * roughness * (Math.random()*0.5 + 0.75) );
+      }
+      path.lineTo(newWidth, (Math.random() - 0.5) * roughness);
+
+      // Right edge
+      for (let i = 0; i < newHeight; i += (step + (Math.random() -0.5) * step * 0.8)) {
+        path.lineTo(newWidth + (Math.random() - 0.5) * roughness * (Math.random()*0.5 + 0.75), Math.min(i, newHeight));
+      }
+      path.lineTo(newWidth + (Math.random() - 0.5) * roughness, newHeight);
+      
+      // Bottom edge
+      for (let i = newWidth; i > 0; i -= (step + (Math.random() -0.5) * step * 0.8)) {
+        path.lineTo(Math.max(i,0), newHeight + (Math.random() - 0.5) * roughness * (Math.random()*0.5 + 0.75));
+      }
+      path.lineTo(0, newHeight + (Math.random() - 0.5) * roughness);
+
+      // Left edge
+      for (let i = newHeight; i > 0; i -= (step + (Math.random() -0.5) * step * 0.8)) {
+        path.lineTo((Math.random() - 0.5) * roughness * (Math.random()*0.5 + 0.75), Math.max(i,0));
+      }
+      path.closePath();
+      
+      ctx.clip(path); // Clip the image to this path first
+
+      // Re-draw the image into the clipped area if globalCompositeOperation not working as expected for all browsers/setups
+      // This ensures the original image content is what's clipped.
+      // ctx.drawImage(baseImage, 0, 0, newWidth, newHeight); // This might be redundant if original drawImage is still visible
+
+      // Then, draw the "torn edge" highlight/shadow on top of the clipped image
+      ctx.strokeStyle = "rgba(0,0,0,0.15)"; // Darker stroke
+      ctx.lineWidth = 2; // Slightly thicker
+      ctx.stroke(path);
+
+      // Add a very subtle lighter "inner tear" effect
+      ctx.strokeStyle = "rgba(255,255,255,0.1)";
+      ctx.lineWidth = 1;
+      // Create a slightly smaller path or offset path for this, or just stroke the same path slightly inside
+      // For simplicity, stroking the same path again, relying on line width and color
+      ctx.stroke(path);
+
       ctx.restore();
     }
     
@@ -175,20 +204,23 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
       ctx.save();
       const outerRadius = Math.sqrt(Math.pow(newWidth / 2, 2) + Math.pow(newHeight / 2, 2));
       const gradient = ctx.createRadialGradient(
-        newWidth / 2, newHeight / 2, newWidth / 2.5, // inner circle
-        newWidth / 2, newHeight / 2, outerRadius    // outer circle
+        newWidth / 2, newHeight / 2, newWidth / 2.2, // inner circle, slightly smaller for stronger effect
+        newWidth / 2, newHeight / 2, outerRadius 
       );
       gradient.addColorStop(0, 'rgba(0,0,0,0)');
-      gradient.addColorStop(1, 'rgba(0,0,0,0.3)');
+      gradient.addColorStop(1, 'rgba(0,0,0,0.35)'); // Darker vignette
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, newWidth, newHeight);
       ctx.restore();
     }
 
-  }, [baseImage, effects, error, imageFile]); // Added error and imageFile to re-render placeholder text
+  }, [baseImage, effects, error, imageFile]);
 
   return (
-    <Card className="shadow-lg h-full">
+    <Card className={cn(
+        "shadow-xl h-full transition-all duration-500", // Enhanced shadow for depth
+        effects.floatingMotion && "animate-float"
+      )}>
       <CardHeader>
         <CardTitle className="font-headline text-xl flex items-center gap-2">
           <ImageIcon className="h-6 w-6 text-primary" />

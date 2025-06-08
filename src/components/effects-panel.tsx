@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState } from 'react';
@@ -10,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Download, Lightbulb, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { Download, Lightbulb, SlidersHorizontal, Sparkles, Move3d, Layers } from 'lucide-react';
 import { suggestFilters, type SuggestFiltersInput } from '@/ai/flows/suggest-filters';
 import { useToast } from '@/hooks/use-toast';
 
@@ -58,16 +59,12 @@ export function EffectsPanel({ currentImage, effects, onEffectsChange, onDownloa
     } catch (error) {
       console.error("AI suggestion error:", error);
       toast({ title: "AI Suggestion Error", description: "Could not fetch suggestions.", variant: "destructive" });
-      setIsLoadingAi(false);
     } finally {
-      // Delay setting isLoadingAi to false to allow reader.onloadend to complete fully if successful
-      // This is a bit of a hack, ideally the promise structure would be cleaner
       setTimeout(() => setIsLoadingAi(false), 500);
     }
   };
   
   const handleApplySuggestion = (suggestion: string) => {
-    // Basic parsing attempt, can be expanded
     let newEffects = { ...effects };
     const lowerSuggestion = suggestion.toLowerCase();
 
@@ -79,6 +76,8 @@ export function EffectsPanel({ currentImage, effects, onEffectsChange, onDownloa
     if (lowerSuggestion.includes('sepia')) newEffects.sepia = 70;
     if (lowerSuggestion.includes('grayscale') || lowerSuggestion.includes('black and white')) newEffects.grayscale = true;
     if (lowerSuggestion.includes('vignette')) newEffects.vignette = true;
+    if (lowerSuggestion.includes('drop shadow')) newEffects.dropShadow = true;
+
 
     if (lowerSuggestion.includes('bright')) newEffects.brightness = Math.min(effects.brightness + 20, 200);
     if (lowerSuggestion.includes('dark')) newEffects.brightness = Math.max(effects.brightness - 20, 0);
@@ -100,12 +99,11 @@ export function EffectsPanel({ currentImage, effects, onEffectsChange, onDownloa
         <CardDescription>Adjust filters and textures for your image.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Paper Texture */}
         <div>
           <Label htmlFor="paperTexture" className="text-sm font-medium">Paper Texture</Label>
           <Select
             value={effects.paperTexture}
-            onValueChange={(value) => handleEffectChange('paperTexture', value)}
+            onValueChange={(value) => handleEffectChange('paperTexture', value as 'none' | 'canvas' | 'watercolor')}
           >
             <SelectTrigger id="paperTexture" className="mt-1">
               <SelectValue placeholder="Select texture" />
@@ -118,12 +116,11 @@ export function EffectsPanel({ currentImage, effects, onEffectsChange, onDownloa
           </Select>
         </div>
 
-        {/* Edge Style */}
         <div>
           <Label htmlFor="edgeStyle" className="text-sm font-medium">Edge Style</Label>
           <Select
             value={effects.edgeStyle}
-            onValueChange={(value) => handleEffectChange('edgeStyle', value)}
+            onValueChange={(value) => handleEffectChange('edgeStyle', value as 'none' | 'torn')}
           >
             <SelectTrigger id="edgeStyle" className="mt-1">
               <SelectValue placeholder="Select edge style" />
@@ -138,7 +135,6 @@ export function EffectsPanel({ currentImage, effects, onEffectsChange, onDownloa
         
         <Separator />
 
-        {/* Sliders */}
         <div className="space-y-4">
           <div>
             <Label htmlFor="brightness" className="text-sm font-medium">Brightness ({effects.brightness}%)</Label>
@@ -174,10 +170,11 @@ export function EffectsPanel({ currentImage, effects, onEffectsChange, onDownloa
 
         <Separator />
         
-        {/* Switches */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <Label htmlFor="grayscale" className="text-sm font-medium">Grayscale</Label>
+            <Label htmlFor="grayscale" className="text-sm font-medium flex items-center gap-2">
+              Grayscale
+            </Label>
             <Switch
               id="grayscale"
               checked={effects.grayscale}
@@ -185,18 +182,39 @@ export function EffectsPanel({ currentImage, effects, onEffectsChange, onDownloa
             />
           </div>
           <div className="flex items-center justify-between">
-            <Label htmlFor="vignette" className="text-sm font-medium">Vignette</Label>
+            <Label htmlFor="vignette" className="text-sm font-medium flex items-center gap-2">
+              Vignette
+            </Label>
             <Switch
               id="vignette"
               checked={effects.vignette}
               onCheckedChange={(checked) => handleEffectChange('vignette', checked)}
             />
           </div>
+          <div className="flex items-center justify-between">
+            <Label htmlFor="dropShadow" className="text-sm font-medium flex items-center gap-2">
+             <Layers className="h-4 w-4 text-muted-foreground" /> Drop Shadow (on image)
+            </Label>
+            <Switch
+              id="dropShadow"
+              checked={effects.dropShadow}
+              onCheckedChange={(checked) => handleEffectChange('dropShadow', checked)}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <Label htmlFor="floatingMotion" className="text-sm font-medium flex items-center gap-2">
+              <Move3d className="h-4 w-4 text-muted-foreground" /> Floating Motion
+            </Label>
+            <Switch
+              id="floatingMotion"
+              checked={effects.floatingMotion}
+              onCheckedChange={(checked) => handleEffectChange('floatingMotion', checked)}
+            />
+          </div>
         </div>
 
         <Separator />
 
-        {/* AI Suggestions */}
         <div>
           <h3 className="font-headline text-lg mb-2 flex items-center gap-2">
             <Lightbulb className="h-5 w-5 text-accent" />

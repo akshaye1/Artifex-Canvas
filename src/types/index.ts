@@ -1,3 +1,4 @@
+
 export interface AppliedEffects {
   paperTexture: string; // 'none', 'canvas', 'watercolor'
   edgeStyle: string;    // 'none', 'torn'
@@ -6,6 +7,8 @@ export interface AppliedEffects {
   sepia: number;      // 0-100, default 0
   grayscale: boolean; // default false
   vignette: boolean;  // default false
+  dropShadow: boolean; // default false
+  floatingMotion: boolean; // default false
 }
 
 export const initialEffects: AppliedEffects = {
@@ -16,6 +19,8 @@ export const initialEffects: AppliedEffects = {
   sepia: 0,
   grayscale: false,
   vignette: false,
+  dropShadow: false,
+  floatingMotion: false,
 };
 
 export const paperTextureOptions = [
@@ -26,5 +31,5 @@ export const paperTextureOptions = [
 
 export const edgeStyleOptions = [
   { value: 'none', label: 'None' },
-  { value: 'torn', label: 'Torn Edge (mock)' },
+  { value: 'torn', label: 'Torn Edge' },
 ];
