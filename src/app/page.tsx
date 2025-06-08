@@ -7,13 +7,10 @@ import { Footer } from '@/components/footer';
 import { ImageUploader } from '@/components/image-uploader';
 import { ImagePreview } from '@/components/image-preview';
 import { EffectsPanel } from '@/components/effects-panel';
-import { FoldableImage } from '@/components/foldable-image';
 import type { AppliedEffects } from '@/types';
 import { initialEffects } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Scissors } from 'lucide-react';
 
 
 export default function ArtifexCanvasPage() {
@@ -65,25 +62,8 @@ export default function ArtifexCanvasPage() {
           </div>
         </div>
 
-        <Separator className="my-8 md:my-12" />
+        {/* The Separator and Paper Effect Demonstrations Card have been removed */}
         
-        <Card className="shadow-lg">
-          <CardHeader>
-            <CardTitle className="font-headline text-xl flex items-center gap-2">
-              <Scissors className="h-6 w-6 text-primary" />
-              Paper Effect Demonstrations
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <FoldableImage 
-              src="https://placehold.co/600x400.png" 
-              alt="Foldable placeholder image"
-              foldMessage="CSS Fold-Out Effect Demo (Hover Me)"
-              data-ai-hint="abstract geometric"
-            />
-          </CardContent>
-        </Card>
-
       </main>
       <Footer />
     </div>
