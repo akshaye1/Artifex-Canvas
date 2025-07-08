@@ -16,45 +16,35 @@ function mapRange(value: number, inMin: number, inMax: number, outMin: number, o
   return ((value - inMin) * (outMax - outMin)) / (inMax - inMin) + outMin;
 }
 
-function cosineInterpolate(y1: number, y2: number, mu: number): number {
-  const mu2 = (1 - Math.cos(mu * Math.PI)) / 2;
-  return y1 * (1 - mu2) + y2 * mu2;
+// Smooth interpolation for natural curves
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
 }
 
-// Enhanced noise generation for more realistic paper tears
-function generatePerlinNoise(width: number, height: number, scale: number = 0.1): number[][] {
-  const noise: number[][] = [];
-  for (let x = 0; x < width; x++) {
-    noise[x] = [];
-    for (let y = 0; y < height; y++) {
-      noise[x][y] = Math.random();
-    }
+// Generate natural paper tear using multiple noise octaves
+function generateNaturalTear(length: number, intensity: number, detail: number): number[] {
+  const points: number[] = [];
+  const numPoints = Math.max(20, Math.floor(detail * 0.8));
+  
+  for (let i = 0; i <= numPoints; i++) {
+    const t = i / numPoints;
+    let value = 0;
+    
+    // Multiple octaves of noise for natural variation
+    value += Math.sin(t * Math.PI * 2) * 0.3; // Base wave
+    value += Math.sin(t * Math.PI * 6) * 0.2; // Medium frequency
+    value += Math.sin(t * Math.PI * 12) * 0.1; // High frequency
+    value += (Math.random() - 0.5) * 0.4; // Random variation
+    
+    // Apply intensity and create natural fade at edges
+    const edgeFade = Math.sin(t * Math.PI);
+    value *= intensity * edgeFade;
+    
+    points.push(value);
   }
-  return noise;
-}
-
-function smoothNoise(baseNoise: number[][], x: number, y: number): number {
-  const intX = Math.floor(x);
-  const intY = Math.floor(y);
-  const fracX = x - intX;
-  const fracY = y - intY;
-
-  const v1 = baseNoise[intX % baseNoise.length]?.[intY % baseNoise[0].length] || 0;
-  const v2 = baseNoise[(intX + 1) % baseNoise.length]?.[intY % baseNoise[0].length] || 0;
-  const v3 = baseNoise[intX % baseNoise.length]?.[((intY + 1) % baseNoise[0].length)] || 0;
-  const v4 = baseNoise[(intX + 1) % baseNoise.length]?.[((intY + 1) % baseNoise[0].length)] || 0;
-
-  const i1 = cosineInterpolate(v1, v2, fracX);
-  const i2 = cosineInterpolate(v3, v4, fracX);
-  return cosineInterpolate(i1, i2, fracY);
-}
-
-type NoiseProfile = number[];
-interface EdgeNoiseProfiles {
-  top: NoiseProfile;
-  right: NoiseProfile;
-  bottom: NoiseProfile;
-  left: NoiseProfile;
+  
+  return points;
 }
 
 export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
@@ -62,7 +52,6 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
   const [baseImage, setBaseImage] = useState<HTMLImageElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-  const [edgeNoiseProfiles, setEdgeNoiseProfiles] = useState<EdgeNoiseProfiles | null>(null);
 
   useEffect(() => {
     if (imageFile) {
@@ -93,44 +82,9 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
     }
   }, [imageFile]);
 
-  // Enhanced noise profile generation for more realistic torn paper
-  useEffect(() => {
-    const generateTornEdgeProfile = (numKeyPoints: number): NoiseProfile => {
-      const profile: NoiseProfile = [];
-      
-      // Create smoother, more natural torn paper profile
-      for (let i = 0; i < numKeyPoints; i++) {
-        const progress = i / (numKeyPoints - 1);
-        
-        // Create gentle, natural variation in tear depth
-        const baseAmplitude = 0.4 + 0.6 * Math.sin(progress * Math.PI * 1.2) * Math.sin(progress * Math.PI * 0.8);
-        
-        // Add subtle noise layers for organic feel
-        let noise = 0;
-        noise += Math.sin(progress * Math.PI * 3) * 0.3;
-        noise += Math.sin(progress * Math.PI * 6) * 0.15;
-        noise += Math.sin(progress * Math.PI * 12) * 0.08;
-        noise += (Math.random() - 0.5) * 0.3; // Reduced random component
-        
-        profile.push(baseAmplitude * noise);
-      }
-      
-      return profile;
-    };
-
-    const numKeyPoints = Math.max(6, Math.floor(mapRange(effects.animEdgeDetails, 0, 100, 6, 20)));
-    
-    setEdgeNoiseProfiles({
-      top: generateTornEdgeProfile(numKeyPoints),
-      right: generateTornEdgeProfile(numKeyPoints),
-      bottom: generateTornEdgeProfile(numKeyPoints),
-      left: generateTornEdgeProfile(numKeyPoints),
-    });
-  }, [effects.animEdgeDetails, effects.animEdgeIntensity]);
-
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !edgeNoiseProfiles) return;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -176,214 +130,185 @@ export function ImagePreview({ imageFile, effects }: ImagePreviewProps) {
       scaledImgContentWidth = scaledImgContentHeight * contentAspectRatio;
     }
 
-    const borderThickness = mapRange(effects.animEdgeThickness, 0, 100, 0, Math.min(scaledImgContentWidth, scaledImgContentHeight) * 0.25);
+    const borderThickness = mapRange(effects.animEdgeThickness, 0, 100, 0, Math.min(scaledImgContentWidth, scaledImgContentHeight) * 0.15);
     const finalCanvasWidth = scaledImgContentWidth + 2 * borderThickness;
     const finalCanvasHeight = scaledImgContentHeight + 2 * borderThickness;
 
     canvas.width = finalCanvasWidth;
     canvas.height = finalCanvasHeight;
     ctx.clearRect(0, 0, finalCanvasWidth, finalCanvasHeight);
-    ctx.save();
 
-    // Enhanced shadow with multiple layers for depth
-    const shadowOffsetXVal = mapRange(effects.animShadowOffsetX, 0, 100, -25, 25);
-    const shadowOffsetYVal = mapRange(effects.animShadowOffsetY, 0, 100, -25, 25);
-    const shadowBlurVal = mapRange(effects.animShadowBlur, 0, 100, 0, 50);
-    const shadowStrengthVal = mapRange(effects.animShadowStrength, 0, 100, 0, 0.8);
+    // Shadow settings
+    const shadowOffsetXVal = mapRange(effects.animShadowOffsetX, 0, 100, -15, 15);
+    const shadowOffsetYVal = mapRange(effects.animShadowOffsetY, 0, 100, -15, 15);
+    const shadowBlurVal = mapRange(effects.animShadowBlur, 0, 100, 0, 30);
+    const shadowStrengthVal = mapRange(effects.animShadowStrength, 0, 100, 0, 0.6);
 
-    const useTornEffect = borderThickness > 0.01 && effects.animEdgeIntensity > 0;
-    const paperPath = new Path2D();
+    const useTornEffect = borderThickness > 2 && effects.animEdgeIntensity > 5;
 
     if (useTornEffect) {
-      // Enhanced torn paper generation
-      const baseMaxDeviation = mapRange(effects.animEdgeIntensity, 0, 100, 0, borderThickness * 0.6);
-      const numSegmentsPerEdge = Math.max(30, Math.floor(mapRange(effects.animEdgeDetails, 0, 100, 30, 80)));
-      const fibrousJitterStrength = mapRange(effects.animCutoutStyle, 0, 100, 0, baseMaxDeviation * 0.2);
+      // Generate natural torn paper shape
+      const tearIntensity = mapRange(effects.animEdgeIntensity, 0, 100, 0, borderThickness * 0.8);
+      const tearDetail = mapRange(effects.animEdgeDetails, 0, 100, 20, 80);
+      
+      // Generate tear patterns for each edge
+      const topTear = generateNaturalTear(finalCanvasWidth, tearIntensity, tearDetail);
+      const rightTear = generateNaturalTear(finalCanvasHeight, tearIntensity, tearDetail);
+      const bottomTear = generateNaturalTear(finalCanvasWidth, tearIntensity, tearDetail);
+      const leftTear = generateNaturalTear(finalCanvasHeight, tearIntensity, tearDetail);
 
-      const getEnhancedDeviation = (profile: NoiseProfile, segmentIndex: number, totalSegments: number): number => {
-        const progress = segmentIndex / totalSegments;
-        const numKeyPoints = profile.length;
-        const keyPointIndexFloat = progress * (numKeyPoints - 1);
-        const keyPointIndex = Math.floor(keyPointIndexFloat);
-        
-        const y1 = profile[keyPointIndex] || 0;
-        const y2 = profile[Math.min(keyPointIndex + 1, numKeyPoints - 1)] || 0;
-        const segmentProgressInKeyPoint = keyPointIndexFloat - keyPointIndex;
-        
-        const interpolatedDeviation = cosineInterpolate(y1, y2, segmentProgressInKeyPoint) * baseMaxDeviation;
-        
-        // Add subtle fiber noise for realistic paper texture
-        const fiberNoise = (Math.random() - 0.5) * fibrousJitterStrength;
-        
-        return interpolatedDeviation + fiberNoise;
-      };
-
-      // Generate smoother torn edges using Bezier curves
-      const points: Array<{x: number, y: number}> = [];
+      // Create the torn paper path
+      const paperPath = new Path2D();
       
-      // Top edge
-      for (let i = 0; i <= numSegmentsPerEdge; i++) {
-        const progress = i / numSegmentsPerEdge;
-        const x = progress * finalCanvasWidth;
-        const y = getEnhancedDeviation(edgeNoiseProfiles.top, i, numSegmentsPerEdge);
-        points.push({x, y});
+      // Start from top-left corner
+      paperPath.moveTo(leftTear[0], topTear[0]);
+      
+      // Top edge - left to right
+      for (let i = 0; i < topTear.length; i++) {
+        const x = (i / (topTear.length - 1)) * finalCanvasWidth;
+        const y = topTear[i];
+        if (i === 0) {
+          paperPath.moveTo(x, y);
+        } else {
+          // Use smooth curves instead of straight lines
+          const prevX = ((i - 1) / (topTear.length - 1)) * finalCanvasWidth;
+          const prevY = topTear[i - 1];
+          const cpX = (prevX + x) / 2;
+          const cpY = (prevY + y) / 2;
+          paperPath.quadraticCurveTo(prevX, prevY, cpX, cpY);
+        }
       }
       
-      // Right edge
-      for (let i = 1; i <= numSegmentsPerEdge; i++) {
-        const progress = i / numSegmentsPerEdge;
-        const x = finalCanvasWidth + getEnhancedDeviation(edgeNoiseProfiles.right, i, numSegmentsPerEdge);
-        const y = progress * finalCanvasHeight;
-        points.push({x, y});
+      // Right edge - top to bottom
+      for (let i = 1; i < rightTear.length; i++) {
+        const x = finalCanvasWidth + rightTear[i];
+        const y = (i / (rightTear.length - 1)) * finalCanvasHeight;
+        const prevX = finalCanvasWidth + rightTear[i - 1];
+        const prevY = ((i - 1) / (rightTear.length - 1)) * finalCanvasHeight;
+        const cpX = (prevX + x) / 2;
+        const cpY = (prevY + y) / 2;
+        paperPath.quadraticCurveTo(prevX, prevY, cpX, cpY);
       }
       
-      // Bottom edge
-      for (let i = numSegmentsPerEdge - 1; i >= 0; i--) {
-        const progress = i / numSegmentsPerEdge;
-        const x = progress * finalCanvasWidth;
-        const y = finalCanvasHeight + getEnhancedDeviation(edgeNoiseProfiles.bottom, i, numSegmentsPerEdge);
-        points.push({x, y});
+      // Bottom edge - right to left
+      for (let i = bottomTear.length - 2; i >= 0; i--) {
+        const x = (i / (bottomTear.length - 1)) * finalCanvasWidth;
+        const y = finalCanvasHeight + bottomTear[i];
+        const nextX = ((i + 1) / (bottomTear.length - 1)) * finalCanvasWidth;
+        const nextY = finalCanvasHeight + bottomTear[i + 1];
+        const cpX = (nextX + x) / 2;
+        const cpY = (nextY + y) / 2;
+        paperPath.quadraticCurveTo(nextX, nextY, cpX, cpY);
       }
       
-      // Left edge
-      for (let i = numSegmentsPerEdge - 1; i >= 1; i--) {
-        const progress = i / numSegmentsPerEdge;
-        const x = getEnhancedDeviation(edgeNoiseProfiles.left, i, numSegmentsPerEdge);
-        const y = progress * finalCanvasHeight;
-        points.push({x, y});
-      }
-      
-      // Create smooth path using quadratic curves
-      paperPath.moveTo(points[0].x, points[0].y);
-      
-      for (let i = 1; i < points.length; i++) {
-        const current = points[i];
-        const next = points[(i + 1) % points.length];
-        
-        // Create control point for smooth curve
-        const controlX = current.x + (next.x - current.x) * 0.5;
-        const controlY = current.y + (next.y - current.y) * 0.5;
-        
-        paperPath.quadraticCurveTo(current.x, current.y, controlX, controlY);
+      // Left edge - bottom to top
+      for (let i = leftTear.length - 2; i >= 0; i--) {
+        const x = leftTear[i];
+        const y = (i / (leftTear.length - 1)) * finalCanvasHeight;
+        const nextX = leftTear[i + 1];
+        const nextY = ((i + 1) / (leftTear.length - 1)) * finalCanvasHeight;
+        const cpX = (nextX + x) / 2;
+        const cpY = (nextY + y) / 2;
+        paperPath.quadraticCurveTo(nextX, nextY, cpX, cpY);
       }
       
       paperPath.closePath();
 
-      // Apply multiple shadow layers for depth
+      // Apply shadow
       if (shadowStrengthVal > 0) {
         ctx.save();
-        
-        // Main shadow
         ctx.shadowColor = `rgba(0, 0, 0, ${shadowStrengthVal})`;
         ctx.shadowBlur = shadowBlurVal;
         ctx.shadowOffsetX = shadowOffsetXVal;
         ctx.shadowOffsetY = shadowOffsetYVal;
-        ctx.fillStyle = 'white';
-        ctx.fill(paperPath);
         
-        // Secondary softer shadow for more depth
-        ctx.shadowColor = `rgba(0, 0, 0, ${shadowStrengthVal * 0.3})`;
-        ctx.shadowBlur = shadowBlurVal * 2;
-        ctx.shadowOffsetX = shadowOffsetXVal * 0.5;
-        ctx.shadowOffsetY = shadowOffsetYVal * 0.5;
+        // Create paper background with slight texture
+        const gradient = ctx.createLinearGradient(0, 0, finalCanvasWidth, finalCanvasHeight);
+        gradient.addColorStop(0, '#fefefe');
+        gradient.addColorStop(0.5, '#fdfdfd');
+        gradient.addColorStop(1, '#fcfcfc');
+        ctx.fillStyle = gradient;
         ctx.fill(paperPath);
         
         ctx.restore();
+      } else {
+        // No shadow version
+        const gradient = ctx.createLinearGradient(0, 0, finalCanvasWidth, finalCanvasHeight);
+        gradient.addColorStop(0, '#fefefe');
+        gradient.addColorStop(0.5, '#fdfdfd');
+        gradient.addColorStop(1, '#fcfcfc');
+        ctx.fillStyle = gradient;
+        ctx.fill(paperPath);
       }
 
-      // Clip to the torn shape
+      // Add subtle edge shading for depth
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+      ctx.lineWidth = 1;
+      ctx.stroke(paperPath);
+      ctx.restore();
+
+      // Clip to the torn shape for the image
       ctx.clip(paperPath);
     } else {
-      // Simple rectangle for no torn effect
-      paperPath.rect(0, 0, finalCanvasWidth, finalCanvasHeight);
-      
+      // Simple rectangle with shadow
       if (shadowStrengthVal > 0) {
+        ctx.save();
         ctx.shadowColor = `rgba(0, 0, 0, ${shadowStrengthVal})`;
         ctx.shadowBlur = shadowBlurVal;
         ctx.shadowOffsetX = shadowOffsetXVal;
         ctx.shadowOffsetY = shadowOffsetYVal;
       }
+      
+      ctx.fillStyle = '#fefefe';
+      ctx.fillRect(0, 0, finalCanvasWidth, finalCanvasHeight);
+      
+      if (shadowStrengthVal > 0) {
+        ctx.restore();
+      }
     }
 
-    // Fill the paper background
-    ctx.fillStyle = '#fefefe'; // Slightly off-white for more realistic paper
-    ctx.fill(paperPath);
-
-    // Reset shadow for subsequent operations
+    // Reset shadow for image drawing
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 0;
-
-    // Add paper edge effects
-    if (useTornEffect) {
-      ctx.save();
-      
-      // Subtle inner shadow on torn edges
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
-      ctx.lineWidth = 0.5;
-      ctx.stroke(paperPath);
-      
-      ctx.restore();
-    }
 
     // Draw the image
     const imageX = borderThickness;
     const imageY = borderThickness;
     ctx.drawImage(baseImage, imageX, imageY, scaledImgContentWidth, scaledImgContentHeight);
 
-    // Enhanced paper texture
-    const textureStrength = mapRange(effects.animTextureStrength, 0, 100, 0, 0.4);
+    // Add paper texture
+    const textureStrength = mapRange(effects.animTextureStrength, 0, 100, 0, 0.3);
     if (textureStrength > 0) {
       ctx.save();
-      if (useTornEffect) {
-        ctx.clip(paperPath);
-      }
+      ctx.globalAlpha = textureStrength;
       
-      // Create paper grain texture
+      // Create subtle paper grain
       const imageData = ctx.getImageData(0, 0, finalCanvasWidth, finalCanvasHeight);
       const data = imageData.data;
       
       for (let i = 0; i < data.length; i += 4) {
-        const noise = (Math.random() - 0.5) * textureStrength * 50;
-        data[i] = Math.max(0, Math.min(255, data[i] + noise));     // Red
-        data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise)); // Green  
-        data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise)); // Blue
+        const noise = (Math.random() - 0.5) * 20;
+        data[i] = Math.max(0, Math.min(255, data[i] + noise));
+        data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise));
+        data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise));
       }
       
       ctx.putImageData(imageData, 0, 0);
-      
-      // Add subtle paper fibers
-      ctx.globalAlpha = textureStrength * 0.3;
-      for (let i = 0; i < finalCanvasWidth * finalCanvasHeight * 0.0005; i++) {
-        const x = Math.random() * finalCanvasWidth;
-        const y = Math.random() * finalCanvasHeight;
-        const length = Math.random() * 3 + 1;
-        const angle = Math.random() * Math.PI * 2;
-        
-        ctx.strokeStyle = `rgba(${180 + Math.random() * 40}, ${170 + Math.random() * 40}, ${150 + Math.random() * 40}, 0.6)`;
-        ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length);
-        ctx.stroke();
-      }
-      
-      ctx.globalAlpha = 1.0;
       ctx.restore();
     }
 
-    ctx.restore();
-
     // Apply floating animation
     if (cardRef.current) {
-      const movementStrength = mapRange(effects.animMovement, 0, 100, 0, 12);
-      const movementDuration = mapRange(effects.animMovement, 0, 100, 15, 5);
+      const movementStrength = mapRange(effects.animMovement, 0, 100, 0, 8);
+      const movementDuration = mapRange(effects.animMovement, 0, 100, 12, 4);
       cardRef.current.style.setProperty('--float-translateY', `-${movementStrength}px`);
       cardRef.current.style.setProperty('--float-duration', `${movementDuration}s`);
     }
 
-  }, [baseImage, effects, error, imageFile, edgeNoiseProfiles]);
+  }, [baseImage, effects, error, imageFile]);
 
   return (
     <Card
